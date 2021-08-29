@@ -1,0 +1,34 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.31515.178
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{09B12CA7-98A2-49B9-9B7C-49C56E337A40}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{AA5CF549-3889-4640-8470-368AEF6D5CAB}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Simple.Kafka.Rpc", "src\Simple.Kafka.Rpc\Simple.Kafka.Rpc.csproj", "{24E80911-5B1A-4B80-8918-19AB02FAB203}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "examples", "examples", "{D02089FF-B5AB-4A58-B853-843658F17A17}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{24E80911-5B1A-4B80-8918-19AB02FAB203}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{24E80911-5B1A-4B80-8918-19AB02FAB203}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{24E80911-5B1A-4B80-8918-19AB02FAB203}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{24E80911-5B1A-4B80-8918-19AB02FAB203}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{24E80911-5B1A-4B80-8918-19AB02FAB203} = {09B12CA7-98A2-49B9-9B7C-49C56E337A40}
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {0F802541-5BEA-43B4-95E0-D41BF5624504}
+	EndGlobalSection
+EndGlobal
