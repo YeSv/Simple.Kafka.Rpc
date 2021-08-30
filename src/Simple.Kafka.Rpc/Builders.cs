@@ -16,14 +16,14 @@ namespace Simple.Kafka.Rpc
                 AutoOffsetReset = AutoOffsetReset.Latest,
                 GroupId = $"RpcClient_{Guid.NewGuid()}"
             };
-            RpcHandler = new RpcEventHandler();
-            KafkaHandler = new KafkaEventHandler();
+            RpcHandler = new ();
+            KafkaHandler = new ();
         }
 
         public RpcBuilder Rpc { get; }
         public ConsumerConfig Kafka { get; }
-        public RpcEventHandler RpcHandler { get; }
-        public KafkaEventHandler KafkaHandler { get; }
+        public RpcConsumerEventHandler RpcHandler { get; }
+        public KafkaConsumerEventHandler KafkaHandler { get; }
 
         public RpcConsumerBuilder WithConfig(Action<ConsumerConfig> @override)
         {
@@ -31,13 +31,13 @@ namespace Simple.Kafka.Rpc
             return this;
         }
 
-        public RpcConsumerBuilder WithKafkaEvents(Action<KafkaEventHandler> @override)
+        public RpcConsumerBuilder WithKafkaEvents(Action<KafkaConsumerEventHandler> @override)
         {
             @override(KafkaHandler);
             return this;
         }
 
-        public RpcConsumerBuilder WithRpcEvents(Action<RpcEventHandler> @override)
+        public RpcConsumerBuilder WithRpcEvents(Action<RpcConsumerEventHandler> @override)
         {
             @override(RpcHandler);
             return this;
@@ -47,12 +47,12 @@ namespace Simple.Kafka.Rpc
         {
             var builder = new ConsumerBuilder<byte[], byte[]>(Kafka);
 
-            if (KafkaHandler.OnAssigned != null) builder.SetPartitionsAssignedHandler((c, p) => KafkaHandler.OnAssigned(p));
-            if (KafkaHandler.OnRevoked != null) builder.SetPartitionsRevokedHandler((c, p) => KafkaHandler.OnRevoked(p));
-            if (KafkaHandler.OnCommitted != null) builder.SetOffsetsCommittedHandler((c, o) => KafkaHandler.OnCommitted(o));
-            if (KafkaHandler.OnError != null) builder.SetErrorHandler((c, e) => KafkaHandler.OnError(e));
-            if (KafkaHandler.OnLog != null) builder.SetLogHandler((c, l) => KafkaHandler.OnLog(l));
-            if (KafkaHandler.OnStatistics != null) builder.SetStatisticsHandler((c, s) => KafkaHandler.OnStatistics(s));
+            if (KafkaHandler.OnAssigned != null) builder.SetPartitionsAssignedHandler(KafkaHandler.OnAssigned);
+            if (KafkaHandler.OnRevoked != null) builder.SetPartitionsRevokedHandler(KafkaHandler.OnRevoked);
+            if (KafkaHandler.OnCommitted != null) builder.SetOffsetsCommittedHandler(KafkaHandler.OnCommitted);
+            if (KafkaHandler.OnError != null) builder.SetErrorHandler(KafkaHandler.OnError);
+            if (KafkaHandler.OnLog != null) builder.SetLogHandler(KafkaHandler.OnLog);
+            if (KafkaHandler.OnStatistics != null) builder.SetStatisticsHandler(KafkaHandler.OnStatistics);
 
             return builder.Build();
         }
@@ -65,7 +65,6 @@ namespace Simple.Kafka.Rpc
             Rpc = builder;
             RpcHandler = new();
             KafkaHandler = new();
-
             Kafka = new ProducerConfig
             {
                 EnableIdempotence = true
@@ -74,8 +73,8 @@ namespace Simple.Kafka.Rpc
 
         public RpcBuilder Rpc { get; }
         public ProducerConfig Kafka { get; }
-        public RpcEventHandler RpcHandler { get; }
-        public KafkaEventHandler KafkaHandler { get; }
+        public RpcProducerEventHandler RpcHandler { get; }
+        public KafkaProducerEventHandler KafkaHandler { get; }
 
         public RpcProducerBuilder WithConfig(Action<ProducerConfig> @override)
         {
@@ -83,13 +82,13 @@ namespace Simple.Kafka.Rpc
             return this;
         }
 
-        public RpcProducerBuilder WithKafkaEvents(Action<KafkaEventHandler> @override)
+        public RpcProducerBuilder WithKafkaEvents(Action<KafkaProducerEventHandler> @override)
         {
             @override(KafkaHandler);
             return this;
         }
 
-        public RpcProducerBuilder WithRpcEvents(Action<RpcEventHandler> @override)
+        public RpcProducerBuilder WithRpcEvents(Action<RpcProducerEventHandler> @override)
         {
             @override(RpcHandler);
             return this;
@@ -99,9 +98,9 @@ namespace Simple.Kafka.Rpc
         {
             var builder = new ProducerBuilder<byte[], byte[]>(Kafka);
             
-            if (KafkaHandler.OnLog != null) builder.SetLogHandler((p, l) => KafkaHandler.OnLog(l));
-            if (KafkaHandler.OnError != null) builder.SetErrorHandler((p, e) => KafkaHandler.OnError(e));
-            if (KafkaHandler.OnStatistics != null) builder.SetStatisticsHandler((p, s) => KafkaHandler.OnStatistics(s));
+            if (KafkaHandler.OnLog != null) builder.SetLogHandler(KafkaHandler.OnLog);
+            if (KafkaHandler.OnError != null) builder.SetErrorHandler(KafkaHandler.OnError);
+            if (KafkaHandler.OnStatistics != null) builder.SetStatisticsHandler(KafkaHandler.OnStatistics);
 
             return builder.Build();
         }

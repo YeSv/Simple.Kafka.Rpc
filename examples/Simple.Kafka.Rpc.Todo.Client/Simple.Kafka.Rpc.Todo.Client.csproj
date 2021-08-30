@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net5.0</TargetFramework>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Simple.Kafka.Rpc\Simple.Kafka.Rpc.csproj" />
+    <ProjectReference Include="..\Simple.Kafka.Rpc.Todo.Common\Simple.Kafka.Rpc.Todo.Common.csproj" />
+  </ItemGroup>
+
+</Project>

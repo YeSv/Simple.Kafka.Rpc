@@ -13,13 +13,14 @@ namespace Simple.Kafka.Rpc
     {
         public static Message<byte[], byte[]> WithRpcRequestId(this Message<byte[], byte[]> message, byte[]? requestId = null)
         {
+            message.Headers ??= new ();
             message.Headers.Add(new (RpcHeaders.RpcRequestID, requestId ?? Guid.NewGuid().ToByteArray()));
             return message;
         }
 
         public static byte[]? GetRpcRequestId(this Message<byte[], byte[]> message)
         {
-            if (message.Headers.Count == 0) return null;
+            if (message.Headers is null or { Count: 0 }) return null;
             
             for (var i = 0; i < message.Headers.Count; i++)
             {

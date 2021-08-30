@@ -1,14 +1,14 @@
 ﻿using Confluent.Kafka;
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
 using Simple.Dotnet.Utilities.Arc;
 using System.Threading.Tasks.Dataflow;
 using System.Threading;
 
-using ProducerRent = Simple.Dotnet.Utilities.Arc.Arc<Confluent.Kafka.IProducer<byte[], byte[]>>.ArcRent<Confluent.Kafka.IProducer<byte[], byte[]>>;
-using ConsumerRent = Simple.Dotnet.Utilities.Arc.Arc<Confluent.Kafka.IConsumer<byte[], byte[]>>.ArcRent<Confluent.Kafka.IConsumer<byte[], byte[]>>;
-using System.Runtime.CompilerServices;
+using ProducerRent = Simple.Dotnet.Utilities.Arc.Arc<Confluent.Kafka.IProducer<byte[], byte[]>>.ArcRent;
+using ConsumerRent = Simple.Dotnet.Utilities.Arc.Arc<Confluent.Kafka.IConsumer<byte[], byte[]>>.ArcRent;
 
 namespace Simple.Kafka.Rpc
 {
@@ -19,7 +19,7 @@ namespace Simple.Kafka.Rpc
 
         readonly RpcConfig _config;
         readonly RpcProducerBuilder _builder;
-        readonly ActionBlock<object?> _refresher;
+        readonly ActionBlock<string> _refresher;
         readonly ActionBlock<HealthResult> _health;
 
         volatile Arc<IProducer<byte[], byte[]>> _producer;
@@ -29,25 +29,28 @@ namespace Simple.Kafka.Rpc
             _config = config;
             _builder = builder.WithKafkaEvents(e =>
             {
+                e.OnErrorRestart ??= error => error.IsFatal;
+
                 var old = e.OnError;
-                e.OnError = error =>
+                e.OnError = (p, error) =>
                 {
-                    if (error.IsFatal)
+                    if (e.OnErrorRestart!(error))
                     {
                         _health.Post(Rpc.Health.FatalErrorRecreatingProducer);
-                        _refresher.Post(null);
+                        _refresher.Post(p.Name);
                     }
-                    old?.Invoke(error);
+                    old?.Invoke(p, error);
                 };
             });
 
             _health = new(h => Health = h, new ExecutionDataflowBlockOptions { MaxDegreeOfParallelism = 1 });
 
-            _refresher = new(_ =>
+            _refresher = new(id =>
             {
                 try
                 {
                     var oldRent = _rent;
+                    if (oldRent.Value!.Name != id) return; // Consumer was changed, ignore
 
                     _builder.RpcHandler.OnRpcLog?.Invoke(RecreatingMessage);
 
@@ -61,7 +64,7 @@ namespace Simple.Kafka.Rpc
                 }
                 catch (Exception ex)
                 {
-                    _refresher.Post(null);
+                    _refresher.Post(id);
                     _health.Post(Rpc.Health.FailedToRecreateProducer);
                     _builder.RpcHandler.OnRpcLog?.Invoke(new(nameof(RpcClient), SyslogLevel.Critical, string.Empty, $"Failed to recreate producer instance. Exception occurred: {ex}"));
 
@@ -102,7 +105,7 @@ namespace Simple.Kafka.Rpc
 
         readonly RpcConfig _config;
         readonly RpcConsumerBuilder _builder;
-        readonly ActionBlock<object?> _refresher; // Required to refresh consumer instances
+        readonly ActionBlock<string> _refresher; // Required to refresh consumer instances
         readonly ActionBlock<HealthResult> _health; // Updates current health
 
         volatile Arc<IConsumer<byte[], byte[]>> _consumer;
@@ -112,25 +115,28 @@ namespace Simple.Kafka.Rpc
             _config = config;
             _builder = builder.WithKafkaEvents(e =>
             {
+                e.OnErrorRestart ??= error => error.IsFatal;
+
                 var old = e.OnError;
-                e.OnError = error =>
+                e.OnError = (c, error) =>
                 {
-                    if (error.IsFatal)
+                    if (e.OnErrorRestart(error))
                     {
-                        _refresher?.Post(null);
+                        _refresher?.Post(c.Name);
                         _health?.Post(Rpc.Health.FatalErrorRecreatingConsumer);
                     }
-                    old?.Invoke(error);
+                    old?.Invoke(c, error);
                 };
             });
 
             _health = new (h => Health = h, new ExecutionDataflowBlockOptions { MaxDegreeOfParallelism = 1 });
 
-            _refresher = new(_ =>
+            _refresher = new(id =>
             {
                 try
                 {
                     var oldRent = _rent;
+                    if (oldRent.Value!.Name != id) return; // Consumer was changed already
 
                     _builder.RpcHandler.OnRpcLog?.Invoke(RecreatingMessage);
 
@@ -150,7 +156,7 @@ namespace Simple.Kafka.Rpc
                 }
                 catch (Exception ex)
                 {
-                    _refresher.Post(null);
+                    _refresher.Post(id);
                     _health.Post(Rpc.Health.FailedToRecreateConsumer);
                     _builder.RpcHandler.OnRpcLog?.Invoke(new(nameof(RpcClient), SyslogLevel.Critical, string.Empty, $"Failed to recreate consumer instance. Exception occurred: {ex}"));
 
@@ -188,11 +194,15 @@ namespace Simple.Kafka.Rpc
             _builder.RpcHandler.OnRpcLog?.Invoke(ConsumerThreadStarted);
             try
             {
+                consumer.Value!.Subscribe(_config.Topics);
+
                 while (!token.IsCancellationRequested)
                 {
                     try
                     {
                         var result = consumer.Value!.Consume(token);
+
+                        if (result == null) continue;
                         if (result.IsPartitionEOF)
                         {
                             _builder.RpcHandler.OnEof?.Invoke(result);
@@ -209,9 +219,9 @@ namespace Simple.Kafka.Rpc
                     }
                     catch (ConsumeException ex)
                     {
-                        _builder.KafkaHandler.OnError?.Invoke(ex.Error);
+                        _builder.KafkaHandler.OnError?.Invoke(consumer.Value!, ex.Error);
                     }
-                    catch (Exception ex)
+                    catch (Exception ex) when (ex is not OperationCanceledException)
                     {
                         _builder.RpcHandler.OnRpcLog?.Invoke(new(nameof(RpcClient), SyslogLevel.Info, string.Empty, $"Unhandled exception occured in consumer thread: {ex}"));
                         if (_config.StopConsumerOnUnhandledException)

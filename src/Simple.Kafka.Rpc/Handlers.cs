@@ -4,26 +4,34 @@ using System.Collections.Generic;
 
 namespace Simple.Kafka.Rpc
 {
-    public sealed class KafkaEventHandler
+    public sealed class KafkaConsumerEventHandler
     {
-        // Consumer:
-        public Action<CommittedOffsets>? OnCommitted;
-        public Action<List<TopicPartition>>? OnAssigned;
-        public Action<List<TopicPartitionOffset>>? OnRevoked;
-
-        // Shared:
-        public Action<Error>? OnError;
-        public Action<LogMessage>? OnLog;
-        public Action<string>? OnStatistics;
+        public Func<Error, bool>? OnErrorRestart;
+        public Action<IConsumer<byte[], byte[]>, Error>? OnError;
+        public Action<IConsumer<byte[], byte[]>, LogMessage>? OnLog;
+        public Action<IConsumer<byte[], byte[]>, string>? OnStatistics;
+        public Action<IConsumer<byte[], byte[]>, CommittedOffsets>? OnCommitted;
+        public Action<IConsumer<byte[], byte[]>, List<TopicPartition>>? OnAssigned;
+        public Action<IConsumer<byte[], byte[]>, List<TopicPartitionOffset>>? OnRevoked;
     }
 
-    public sealed class RpcEventHandler
+    public sealed class KafkaProducerEventHandler
     {
-        // Consumer:
+        public Func<Error, bool>? OnErrorRestart;
+        public Action<IProducer<byte[], byte[]>, Error>? OnError;
+        public Action<IProducer<byte[], byte[]>, LogMessage>? OnLog;
+        public Action<IProducer<byte[], byte[]>, string>? OnStatistics;
+    }
+
+    public sealed class RpcConsumerEventHandler
+    {
+        public Action<LogMessage>? OnRpcLog;
         public Action<ConsumeResult<byte[], byte[]>>? OnEof;
         public Action<Guid, ConsumeResult<byte[], byte[]>>? OnRpcMessage;
+    }
 
-        // Shared:
+    public sealed class RpcProducerEventHandler
+    {
         public Action<LogMessage>? OnRpcLog;
     }
 }
