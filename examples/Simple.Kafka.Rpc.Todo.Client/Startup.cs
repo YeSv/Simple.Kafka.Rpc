@@ -45,7 +45,7 @@ namespace Simple.Kafka.Rpc.Todo.Client
                     {
                         // Logs for different events from rpc library
                         e.OnEof = c => Console.WriteLine($"Got an eof: {c.TopicPartitionOffset}");
-                        e.OnRpcLog = c => Console.WriteLine($"RpcLog: {c.Message} [{c.Level}]");
+                        e.OnRpcLog = c => Console.WriteLine($"Consumer RpcLog: {c.Message} [{c.Level}]");
                         e.OnRpcMessage = (id, r) => Console.WriteLine($"received respose for: {id}");
                     })
                     .WithKafkaEvents(e =>
@@ -64,7 +64,7 @@ namespace Simple.Kafka.Rpc.Todo.Client
                     .WithRpcEvents(e =>
                     {
                         // Logs for different events from rpc library
-                        e.OnRpcLog = c => Console.WriteLine(c);
+                        e.OnRpcLog = c => Console.WriteLine($"Producer RpcLog: {c.Message} [{c.Level}]");
                     })
                     .WithKafkaEvents(e =>
                     {
