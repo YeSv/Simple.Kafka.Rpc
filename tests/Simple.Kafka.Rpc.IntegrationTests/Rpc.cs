@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace Simple.Kafka.Rpc.IntegrationTests
 {
@@ -52,6 +54,19 @@ namespace Simple.Kafka.Rpc.IntegrationTests
 
             @override?.Invoke(builder);
             return builder.Build();
+        }
+
+
+        public static async Task<HealthResult> WaitForHealth(this IKafkaRpc rpc, Predicate<HealthResult> predicate, CancellationToken token)
+        {
+            while (!token.IsCancellationRequested)
+            {
+                if (predicate(rpc.Health)) return rpc.Health;
+
+                await Task.Delay(TimeSpan.FromSeconds(5));
+            }
+
+            return rpc.Health;
         }
     }
 }

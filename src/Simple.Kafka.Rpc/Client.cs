@@ -7,7 +7,7 @@ using Simple.Dotnet.Utilities.Tasks;
 
 namespace Simple.Kafka.Rpc
 {
-    public interface IKafkaRpc
+    public interface IKafkaRpc : IDisposable
     {
         HealthResult Health { get; }
 
@@ -36,7 +36,7 @@ namespace Simple.Kafka.Rpc
         }
     }
 
-    public sealed class RpcClient : IKafkaRpc, IDisposable
+    public sealed class RpcClient : IKafkaRpc
     {
         readonly RpcConfig _config;
         readonly ProducerOwner _producer;
