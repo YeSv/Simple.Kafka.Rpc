@@ -18,6 +18,7 @@
 
         // Consumer:
         public static readonly HealthResult FailedToRecreateConsumer = HealthResult.Unhealthy("Failed to recreate consumer instance");
+        public static readonly HealthResult ConsumerAssignedToZeroPartitions = HealthResult.Unhealthy("Consumer is not assigned to any topic or partition");
         public static readonly HealthResult FatalErrorRecreatingConsumer = HealthResult.Unhealthy("Received fatal consumer error. Recreating consumer instance");
         public static readonly HealthResult ConsumerStoppedDueToUnhandledException = HealthResult.Unhealthy($"Unhandled exception occurred in consumer thread. Consumer won't be recreated because {nameof(RpcConfig.StopConsumerOnUnhandledException)} is true");
 
