@@ -19,9 +19,10 @@ namespace Simple.Kafka.Rpc
 
         readonly RpcConfig _config;
         readonly RpcProducerBuilder _builder;
-        readonly ActionBlock<string> _refresher;
-        readonly ActionBlock<(string Id, HealthResult Health)> _health;
+        readonly Timer _healthChecker;
+        readonly ActionBlock<IStateChangeCommand> _stateChanger;
 
+        volatile HealthResult _health;
         volatile Arc<IProducer<byte[], byte[]>> _producer;
 
         // TODO: Completely rewrite state updates
@@ -35,47 +36,25 @@ namespace Simple.Kafka.Rpc
                 var old = e.OnError;
                 e.OnError = (p, error) =>
                 {
-                    if (e.OnErrorRestart!(error))
-                    {
-                        _health.Post((p.Name, Rpc.Health.FatalErrorRecreatingProducer));
-                        _refresher.Post(p.Name);
-                    }
+                    if (e.OnErrorRestart!(error)) _stateChanger?.Post(new ChangeHealthCommand(p.Name, Rpc.Health.ProducerFatalError));
                     old?.Invoke(p, error);
                 };
             });
 
-            _health = new(h => 
+            _healthChecker = new Timer(s =>
             {
-                using var rent = _producer.Rent();
-                if (rent.Value!.Name != h.Id) return; // Only updates for the same producer allowed
+                using var rent = Rent();
+                _stateChanger?.Post(new CheckHealthAndRecreateCommand(rent.Value!.Name));
+            }, null, _config.ProducerHealthCheckInterval, _config.ProducerHealthCheckInterval);
 
-                Health = h.Health;
-            }, new ExecutionDataflowBlockOptions { MaxDegreeOfParallelism = 1 });
-
-            _refresher = new(id =>
+            _stateChanger = new(cmd =>
             {
-                try
+                switch (cmd)
                 {
-                    var oldRent = _rent;
-                    if (oldRent.Value!.Name != id) return; // Consumer was changed, ignore
-
-                    _builder.RpcHandler.OnRpcLog?.Invoke(RecreatingMessage);
-
-                    _producer = new(_builder.Build());
-                    _rent = _producer.Rent();
-
-                    oldRent.Dispose();
-
-                    _health.Post((_rent.Value!.Name, Rpc.Health.Healthy));
-                    _builder.RpcHandler.OnRpcLog?.Invoke(RecreatedMessage);
-                }
-                catch (Exception ex)
-                {
-                    _refresher.Post(id);
-                    _health.Post((id, Rpc.Health.FailedToRecreateProducer));
-                    _builder.RpcHandler.OnRpcLog?.Invoke(new(nameof(RpcClient), SyslogLevel.Critical, string.Empty, $"Failed to recreate producer instance. Exception occurred: {ex}"));
-
-                    Thread.Sleep(_config.ProducerRecreationPause);
+                    case ChangeHealthCommand c: SetHealth(c.Id, c.Change); break;
+                    case RecreateCommand r: Recreate(r.Id); break;
+                    case CheckHealthAndRecreateCommand cr:
+                        if (Health != Rpc.Health.Healthy) Recreate(cr.Id); break;
                 }
             }, new ExecutionDataflowBlockOptions { MaxDegreeOfParallelism = 1 });
 
@@ -83,19 +62,45 @@ namespace Simple.Kafka.Rpc
             _rent = _producer.Rent();
         }
 
-        public HealthResult Health { get; private set; } = HealthResult.Healthy; 
+        public HealthResult Health => _health;
+
+        internal void Recreate(string senderId)
+        {
+            try
+            {
+                var oldRent = _rent;
+                if (oldRent.Value!.Name != senderId) return; // Consumer was changed, ignore
+
+                _builder.RpcHandler.OnRpcLog?.Invoke(RecreatingMessage);
+
+                _producer = new(_builder.Build());
+                _rent = _producer.Rent();
+
+                oldRent.Dispose();
+
+                _builder.RpcHandler.OnRpcLog?.Invoke(RecreatedMessage);
+                _health = Rpc.Health.Healthy;
+            }
+            catch (Exception ex)
+            {
+                _builder.RpcHandler.OnRpcLog?.Invoke(new(nameof(RpcClient), SyslogLevel.Critical, string.Empty, $"Failed to recreate producer instance. Exception occurred: {ex}"));
+            }
+        }
+
+        internal void SetHealth(string senderId, HealthResult health)
+        {
+            if (_rent.Value!.Name != senderId) return; // Do nothing 
+            _health = health;
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public ProducerRent Rent() => _producer.Rent();
 
         public void Dispose()
         {
-            _refresher?.Complete();
-            _refresher?.Completion.Wait();
-
-            _health?.Complete();
-            _health?.Completion.Wait();
-
+            _healthChecker?.Dispose();
+            _stateChanger?.Complete();
+            _stateChanger?.Completion.Wait();
             _rent.Dispose();
         }
 
@@ -111,10 +116,11 @@ namespace Simple.Kafka.Rpc
         CancellationTokenSource _source; // Required to stop the thread
 
         readonly RpcConfig _config;
+        readonly Timer _healthChecker;
         readonly RpcConsumerBuilder _builder;
-        readonly ActionBlock<string> _refresher; // Required to refresh consumer instances
-        readonly ActionBlock<(string Id, HealthResult Health)> _health; // Updates current health
+        readonly ActionBlock<IStateChangeCommand> _stateChanger;
 
+        volatile HealthResult _health;
         volatile Arc<IConsumer<byte[], byte[]>> _consumer;
 
         // TODO: Completely rewrite state updates
@@ -128,64 +134,34 @@ namespace Simple.Kafka.Rpc
                 var oldError = e.OnError;
                 e.OnError = (c, error) =>
                 {
-                    if (e.OnErrorRestart(error))
-                    {
-                        _refresher?.Post(c.Name);
-                        _health?.Post((c.Name, Rpc.Health.FatalErrorRecreatingConsumer));
-                    }
+                    if (e.OnErrorRestart(error)) _stateChanger?.Post(new ChangeHealthCommand(c.Name, Rpc.Health.ConsumerFatalError));
                     oldError?.Invoke(c, error);
                 };
 
                 var oldAssigned = e.OnAssigned;
                 e.OnAssigned = (c, p) =>
-                {
-                    if (p.Count == 0) _health?.Post((c.Name, Rpc.Health.ConsumerAssignedToZeroPartitions));
-                    else if (Health.Reason == Rpc.Health.ConsumerAssignedToZeroPartitions.Reason) _health?.Post((c.Name, Rpc.Health.Healthy));
+                {                    
+                    if (p.Count == 0 && _config.RecreateConsumerOnZeroPartitionsAssigned) _stateChanger?.Post(new ChangeHealthCommand(c.Name, Rpc.Health.ConsumerAssignedToZeroPartitions));
+                    if (Health == Rpc.Health.ConsumerAssignedToZeroPartitions && p.Count > 0) _stateChanger?.Post(new ChangeHealthCommand(c.Name, Rpc.Health.Healthy));
                     
                     oldAssigned?.Invoke(c, p);
                 };
             });
 
-            _health = new (h => 
+            _healthChecker = new Timer(s =>
             {
-                using var rent = _consumer?.Rent();
-                if (rent?.Value!.Name != h.Id) return; // Only health updates for current consumer are allowed
+                using var rent = _consumer.Rent();
+                _stateChanger.Post(new CheckHealthAndRecreateCommand(rent.Value!.Name));
+            }, null, _config.ConsumerHealthCheckInterval, _config.ConsumerHealthCheckInterval);
 
-                Health = h.Health;
-            }, new ExecutionDataflowBlockOptions { MaxDegreeOfParallelism = 1 });
-
-            _refresher = new(id =>
+            _stateChanger = new(cmd =>
             {
-                try
+                switch (cmd)
                 {
-                    var oldRent = _rent;
-
-                    using var rent = _consumer.Rent();
-                    if (rent.Value!.Name != id) return; // Consumer was changed already
-
-                    _builder.RpcHandler.OnRpcLog?.Invoke(RecreatingMessage);
-
-                    _source?.Cancel();
-                    _task?.Wait();
-
-                    _source = new();
-                    _consumer = new(_builder.Build(), c => c.Close());
-                    _rent = _consumer.Rent();
-
-                    oldRent.Dispose();
-
-                    _task = Task.Factory.StartNew(Handler, _source.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
-
-                    _health.Post((_rent.Value!.Name, HealthResult.Healthy));
-                    _builder.RpcHandler.OnRpcLog?.Invoke(RecreatedMessage);
-                }
-                catch (Exception ex)
-                {
-                    _refresher.Post(id);
-                    _health.Post((id, Rpc.Health.FailedToRecreateConsumer));
-                    _builder.RpcHandler.OnRpcLog?.Invoke(new(nameof(RpcClient), SyslogLevel.Critical, string.Empty, $"Failed to recreate consumer instance. Exception occurred: {ex}"));
-
-                    Thread.Sleep(_config.ConsumerRecreationPause);
+                    case ChangeHealthCommand c: SetHealth(c.Id, c.Change); break;
+                    case RecreateCommand r: Recreate(r.Id); break;
+                    case CheckHealthAndRecreateCommand cr:
+                        if (Health != Rpc.Health.Healthy && Health != Rpc.Health.ConsumerStoppedDueToUnhandledException) Recreate(cr.Id); break;
                 }
             }, new ExecutionDataflowBlockOptions { MaxDegreeOfParallelism = 1 });
 
@@ -197,16 +173,52 @@ namespace Simple.Kafka.Rpc
 
         public HealthResult Health { get; private set; } = Rpc.Health.Healthy;
 
+        internal void Recreate(string senderId)
+        {
+            try
+            {
+                var oldRent = _rent;
+
+                using var rent = _consumer.Rent();
+                if (rent.Value!.Name != senderId) return; // Consumer was changed already
+
+                _builder.RpcHandler.OnRpcLog?.Invoke(RecreatingMessage);
+
+                _source?.Cancel();
+                _task?.Wait();
+
+                _source = new();
+                _consumer = new(_builder.Build(), c => c.Close());
+                _rent = _consumer.Rent();
+
+                oldRent.Dispose();
+
+                _task = Task.Factory.StartNew(Handler, _source.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
+                _health = Rpc.Health.Healthy;
+                _builder.RpcHandler.OnRpcLog?.Invoke(RecreatedMessage);
+            }
+            catch (Exception ex)
+            {
+                _builder.RpcHandler.OnRpcLog?.Invoke(new(nameof(RpcClient), SyslogLevel.Critical, string.Empty, $"Failed to recreate consumer instance. Exception occurred: {ex}"));
+            }
+        }
+
+        internal void SetHealth(string senderId, HealthResult health)
+        {
+            if (_rent.Value!.Name != senderId) return; // Do nothing 
+            _health = health;
+        }
+
         public void Dispose()
         {
-            _refresher?.Complete();
-            _refresher?.Completion.Wait(); 
+            _healthChecker?.Dispose();
+
+            _stateChanger?.Complete();
+            _stateChanger?.Completion.Wait(); 
             
             _source?.Cancel();
             _task?.Wait();
-            
-            _health?.Complete();
-            _health?.Completion.Wait();
 
             _rent.Dispose();
         }
@@ -251,7 +263,7 @@ namespace Simple.Kafka.Rpc
                         _builder.RpcHandler.OnRpcLog?.Invoke(new(nameof(RpcClient), SyslogLevel.Info, string.Empty, $"Unhandled exception occured in consumer thread: {ex}"));
                         if (_config.StopConsumerOnUnhandledException)
                         {
-                            _health.Post((consumer.Value!.Name, Rpc.Health.ConsumerStoppedDueToUnhandledException));
+                            _stateChanger?.Post(new ChangeHealthCommand(consumer.Value!.Name, Rpc.Health.ConsumerStoppedDueToUnhandledException));
                             _builder.RpcHandler.OnRpcLog?.Invoke(ExceptionConsumerWontBeRecreated);
                             return;
                         }
@@ -267,5 +279,42 @@ namespace Simple.Kafka.Rpc
         static readonly LogMessage RecreatingMessage = new(nameof(RpcClient), SyslogLevel.Info, string.Empty, "Fatal error occurred, recreating consumer instance");
         static readonly LogMessage RecreatedMessage = new(nameof(RpcClient), SyslogLevel.Info, string.Empty, "Fatal error occurred, successfully recreated consumer instance");
         static readonly LogMessage ExceptionConsumerWontBeRecreated = new(nameof(RpcClient), SyslogLevel.Critical, string.Empty, $"Consumer won't be recreated because {nameof(RpcConfig.StopConsumerOnUnhandledException)} is true");
+    }
+
+    internal enum StateChangeCommand : byte
+    {
+        Recreate,
+        ChangeHealth,
+        CheckHealthAndRecreate
+    }
+
+    internal interface IStateChangeCommand 
+    {
+        StateChangeCommand Type { get; }
+    }
+
+    internal sealed class RecreateCommand : IStateChangeCommand
+    {
+        public string Id { get; }
+        public StateChangeCommand Type => StateChangeCommand.Recreate;
+
+        public RecreateCommand(string id) => Id = id;
+    }
+
+    internal sealed class ChangeHealthCommand : IStateChangeCommand
+    {
+        public string Id { get; }
+        public HealthResult Change { get;  }
+        public StateChangeCommand Type => StateChangeCommand.ChangeHealth;
+
+        public ChangeHealthCommand(string id, HealthResult change) => (Id, Change) = (id, change);
+    }
+
+    internal sealed class CheckHealthAndRecreateCommand : IStateChangeCommand
+    {
+        public string Id { get; }
+        public StateChangeCommand Type => StateChangeCommand.CheckHealthAndRecreate;
+
+        public CheckHealthAndRecreateCommand(string id) => Id = id;
     }
 }

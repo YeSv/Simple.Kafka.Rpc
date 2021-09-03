@@ -5,9 +5,10 @@ namespace Simple.Kafka.Rpc
     public sealed class RpcConfig
     {
         public string[] Topics { get; set; } = Array.Empty<string>();
-        public bool StopConsumerOnUnhandledException { get; set; } = false;
+        public bool StopConsumerOnUnhandledException { get; set; }
+        public bool RecreateConsumerOnZeroPartitionsAssigned { get; set; }
         public TimeSpan? RequestTimeout { get; set; }
-        public TimeSpan ConsumerRecreationPause { get; set; } = TimeSpan.FromSeconds(10);
-        public TimeSpan ProducerRecreationPause { get; set; } = TimeSpan.FromSeconds(10);
+        public TimeSpan ConsumerHealthCheckInterval { get; set; } = TimeSpan.FromSeconds(10);
+        public TimeSpan ProducerHealthCheckInterval { get; set; } = TimeSpan.FromSeconds(10);
     }
 }
