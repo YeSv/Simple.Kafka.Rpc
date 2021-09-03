@@ -36,8 +36,8 @@ namespace Simple.Kafka.Rpc.Todo.Client
                         c.RequestTimeout = TimeSpan.FromSeconds(5); // Timeout for an rpc operation (Passed cancellation token overrides this config)
                         c.StopConsumerOnUnhandledException = false; // If unhandled exception occures in consumer thread - continue...if true -> everything is stopped
                         c.Topics = new[] { "get-todos-responses", "add-todo-responses", "remove-todo-responses" }; // Topics to subscribe for responses
-                        c.ConsumerRecreationPause = TimeSpan.FromSeconds(15); // If error occurs on recreation of consumer a dedicated thread will be paused to retry later
-                        c.ProducerRecreationPause = TimeSpan.FromSeconds(15); // If error occurs on recreation of producer a dedicated thread will be paused to retry later
+                        c.ConsumerHealthCheckInterval = TimeSpan.FromSeconds(15); // If error occurs on recreation of consumer a dedicated thread will be paused to retry later
+                        c.ProducerHealthCheckInterval = TimeSpan.FromSeconds(15); // If error occurs on recreation of producer a dedicated thread will be paused to retry later
                     })
                     .Consumer
                     .WithConfig(c => c.BootstrapServers = "localhost:9092")
