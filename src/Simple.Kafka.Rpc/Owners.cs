@@ -19,7 +19,6 @@ namespace Simple.Kafka.Rpc
 
         readonly RpcConfig _config;
         readonly RpcProducerBuilder _builder;
-        readonly Timer _healthChecker;
         readonly ActionBlock<IStateChangeCommand> _stateChanger;
 
         volatile HealthResult _health;
@@ -35,7 +34,11 @@ namespace Simple.Kafka.Rpc
                 var old = e.OnError;
                 e.OnError = (p, error) =>
                 {
-                    if (e.OnErrorRestart!(error)) _stateChanger?.Post(new ChangeHealthCommand(p.Name, Rpc.Health.ProducerFatalError));
+                    if (e.OnErrorRestart!(error))
+                    {
+                        _stateChanger?.Post(new ChangeHealthCommand(p.Name, Rpc.Health.ProducerFatalError));
+                        _stateChanger?.Post(new RecreateCommand(p.Name));
+                    }
                     old?.Invoke(p, error);
                 };
             });
@@ -45,20 +48,12 @@ namespace Simple.Kafka.Rpc
             _producer = new(_builder.Build());
             _rent = _producer.Rent();
 
-            _healthChecker = new Timer(s =>
-            {
-                using var rent = Rent();
-                _stateChanger?.Post(new CheckHealthAndRecreateCommand(rent.Value!.Name));
-            }, null, _config.ProducerHealthCheckInterval, _config.ProducerHealthCheckInterval);
-
             _stateChanger = new(cmd =>
             {
                 switch (cmd)
                 {
                     case ChangeHealthCommand c: SetHealth(c.Id, c.Change); break;
                     case RecreateCommand r: Recreate(r.Id); break;
-                    case CheckHealthAndRecreateCommand cr:
-                        if (Health != Rpc.Health.Healthy) Recreate(cr.Id); break;
                 }
             }, new ExecutionDataflowBlockOptions { MaxDegreeOfParallelism = 1 });
         }
@@ -99,7 +94,6 @@ namespace Simple.Kafka.Rpc
 
         public void Dispose()
         {
-            _healthChecker?.Dispose();
             _stateChanger?.Complete();
             _stateChanger?.Completion.Wait();
             _rent.Dispose();
@@ -117,7 +111,6 @@ namespace Simple.Kafka.Rpc
         CancellationTokenSource _source; // Required to stop the thread
 
         readonly RpcConfig _config;
-        readonly Timer _healthChecker;
         readonly RpcConsumerBuilder _builder;
         readonly ActionBlock<IStateChangeCommand> _stateChanger;
 
@@ -134,23 +127,12 @@ namespace Simple.Kafka.Rpc
                 var oldError = e.OnError;
                 e.OnError = (c, error) =>
                 {
-                    if (e.OnErrorRestart(error)) _stateChanger?.Post(new ChangeHealthCommand(c.Name, Rpc.Health.ConsumerFatalError));
+                    if (e.OnErrorRestart(error))
+                    {
+                        _stateChanger?.Post(new ChangeHealthCommand(c.Name, Rpc.Health.ConsumerFatalError));
+                        _stateChanger?.Post(new RecreateCommand(c.Name));
+                    }
                     oldError?.Invoke(c, error);
-                };
-
-                var oldRevoked = e.OnRevoked;
-                e.OnRevoked = (c, p) =>
-                {
-                    oldRevoked?.Invoke(c, p);
-                };
-
-                var oldAssigned = e.OnAssigned;
-                e.OnAssigned = (c, p) =>
-                {                    
-                    if (p.Count == 0 && _config.RecreateConsumerOnZeroPartitionsAssigned) _stateChanger?.Post(new ChangeHealthCommand(c.Name, Rpc.Health.ConsumerAssignedToZeroPartitions));
-                    if (Health == Rpc.Health.ConsumerAssignedToZeroPartitions && p.Count > 0) _stateChanger?.Post(new ChangeHealthCommand(c.Name, Rpc.Health.Healthy));
-                    
-                    oldAssigned?.Invoke(c, p);
                 };
             });
 
@@ -161,20 +143,12 @@ namespace Simple.Kafka.Rpc
             _rent = _consumer.Rent();
             _task = Task.Factory.StartNew(Handler, _source.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
-            _healthChecker = new Timer(s =>
-            {
-                using var rent = _consumer.Rent();
-                _stateChanger.Post(new CheckHealthAndRecreateCommand(rent.Value!.Name));
-            }, null, _config.ConsumerHealthCheckInterval, _config.ConsumerHealthCheckInterval);
-
             _stateChanger = new(cmd =>
             {
                 switch (cmd)
                 {
                     case ChangeHealthCommand c: SetHealth(c.Id, c.Change); break;
                     case RecreateCommand r: Recreate(r.Id); break;
-                    case CheckHealthAndRecreateCommand cr:
-                        if (Health != Rpc.Health.Healthy && Health != Rpc.Health.ConsumerStoppedDueToUnhandledException) Recreate(cr.Id); break;
                 }
             }, new ExecutionDataflowBlockOptions { MaxDegreeOfParallelism = 1 });
         }
@@ -220,8 +194,6 @@ namespace Simple.Kafka.Rpc
 
         public void Dispose()
         {
-            _healthChecker?.Dispose();
-
             _stateChanger?.Complete();
             _stateChanger?.Completion.Wait(); 
             
@@ -292,8 +264,7 @@ namespace Simple.Kafka.Rpc
     internal enum StateChangeCommand : byte
     {
         Recreate,
-        ChangeHealth,
-        CheckHealthAndRecreate
+        ChangeHealth
     }
 
     internal interface IStateChangeCommand 
@@ -316,13 +287,5 @@ namespace Simple.Kafka.Rpc
         public StateChangeCommand Type => StateChangeCommand.ChangeHealth;
 
         public ChangeHealthCommand(string id, HealthResult change) => (Id, Change) = (id, change);
-    }
-
-    internal sealed class CheckHealthAndRecreateCommand : IStateChangeCommand
-    {
-        public string Id { get; }
-        public StateChangeCommand Type => StateChangeCommand.CheckHealthAndRecreate;
-
-        public CheckHealthAndRecreateCommand(string id) => Id = id;
     }
 }
