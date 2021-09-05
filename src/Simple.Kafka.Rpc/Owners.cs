@@ -25,7 +25,6 @@ namespace Simple.Kafka.Rpc
         volatile HealthResult _health;
         volatile Arc<IProducer<byte[], byte[]>> _producer;
 
-        // TODO: Completely rewrite state updates
         public ProducerOwner(RpcProducerBuilder builder, RpcConfig config)
         {
             _config = config;
@@ -40,6 +39,11 @@ namespace Simple.Kafka.Rpc
                     old?.Invoke(p, error);
                 };
             });
+
+            _health = Rpc.Health.Healthy;
+
+            _producer = new(_builder.Build());
+            _rent = _producer.Rent();
 
             _healthChecker = new Timer(s =>
             {
@@ -57,9 +61,6 @@ namespace Simple.Kafka.Rpc
                         if (Health != Rpc.Health.Healthy) Recreate(cr.Id); break;
                 }
             }, new ExecutionDataflowBlockOptions { MaxDegreeOfParallelism = 1 });
-
-            _producer = new(_builder.Build());
-            _rent = _producer.Rent();
         }
 
         public HealthResult Health => _health;
@@ -123,7 +124,6 @@ namespace Simple.Kafka.Rpc
         volatile HealthResult _health;
         volatile Arc<IConsumer<byte[], byte[]>> _consumer;
 
-        // TODO: Completely rewrite state updates
         public ConsumerOwner(RpcConsumerBuilder builder, RpcConfig config)
         {
             _config = config;
@@ -138,6 +138,12 @@ namespace Simple.Kafka.Rpc
                     oldError?.Invoke(c, error);
                 };
 
+                var oldRevoked = e.OnRevoked;
+                e.OnRevoked = (c, p) =>
+                {
+                    oldRevoked?.Invoke(c, p);
+                };
+
                 var oldAssigned = e.OnAssigned;
                 e.OnAssigned = (c, p) =>
                 {                    
@@ -147,6 +153,13 @@ namespace Simple.Kafka.Rpc
                     oldAssigned?.Invoke(c, p);
                 };
             });
+
+            _health = Rpc.Health.Healthy;
+
+            _source = new();
+            _consumer = new(_builder.Build(), c => c.Close());
+            _rent = _consumer.Rent();
+            _task = Task.Factory.StartNew(Handler, _source.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
             _healthChecker = new Timer(s =>
             {
@@ -164,14 +177,9 @@ namespace Simple.Kafka.Rpc
                         if (Health != Rpc.Health.Healthy && Health != Rpc.Health.ConsumerStoppedDueToUnhandledException) Recreate(cr.Id); break;
                 }
             }, new ExecutionDataflowBlockOptions { MaxDegreeOfParallelism = 1 });
-
-            _source = new();
-            _consumer = new(_builder.Build(), c => c.Close());
-
-            _task = Task.Factory.StartNew(Handler, _source.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         }
 
-        public HealthResult Health { get; private set; } = Rpc.Health.Healthy;
+        public HealthResult Health => _health;
 
         internal void Recreate(string senderId)
         {

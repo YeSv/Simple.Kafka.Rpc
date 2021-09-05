@@ -20,7 +20,7 @@
     }
 
 
-    internal static class Health
+    public static class Health
     {
         public static readonly HealthResult Healthy = HealthResult.Healthy;
 

@@ -17,7 +17,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Simple.Kafka.Rpc.Todo.Serve
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Simple.Kafka.Rpc.Todo.Client", "examples\Simple.Kafka.Rpc.Todo.Client\Simple.Kafka.Rpc.Todo.Client.csproj", "{5F45FF06-AE94-476E-9464-1778FB243ED9}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Simple.Kafka.Rpc.IntegrationTests", "tests\Simple.Kafka.Rpc.IntegrationTests\Simple.Kafka.Rpc.IntegrationTests.csproj", "{FACC07CC-E7C9-4C16-B655-FF8669D8396B}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Simple.Kafka.Rpc.IntegrationTests", "tests\Simple.Kafka.Rpc.IntegrationTests\Simple.Kafka.Rpc.IntegrationTests.csproj", "{FACC07CC-E7C9-4C16-B655-FF8669D8396B}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
