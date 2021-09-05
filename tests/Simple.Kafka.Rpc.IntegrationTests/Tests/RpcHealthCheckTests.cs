@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Simple.Kafka.Rpc.IntegrationTests.Tests
 {
@@ -12,11 +13,12 @@ namespace Simple.Kafka.Rpc.IntegrationTests.Tests
         static readonly TimeSpan Timeout = TimeSpan.FromSeconds(30);
 
         readonly Environment _env;
+        readonly ITestOutputHelper _output;
 
-        public RpcHealthCheckTests(Environment env)
+        public RpcHealthCheckTests(Environment env, ITestOutputHelper output)
         {
-            _env = env;
-            _env.Kafka.Run(new Dictionary<string, string>()).GetAwaiter().GetResult();
+            _output = output;
+            _env = env.Start(output);
         }
 
         [Fact]
@@ -35,11 +37,32 @@ namespace Simple.Kafka.Rpc.IntegrationTests.Tests
         public async Task Rpc_Health_Check_Should_Be_Unhealthy_If_Kafka_Is_Down()
         {
             using var timeout = new CancellationTokenSource(Timeout);
+            try
+            {
+                await _env.Kafka!.Stop(timeout.Token);
+
+                using var rpc = Rpc.Create(_env);
+
+                var health = await rpc.WaitForHealth(h => !h.IsHealthy, timeout.Token);
+
+                health.IsHealthy.Should().BeFalse();
+                health.Reason.Should().Be(Health.ConsumerAssignedToZeroPartitions.Reason);
+            }
+            finally
+            {
+                await _env.Kafka!.Run(Environment.EmptyEnvVariables);
+            }
+        }
+
+        [Fact]
+        public async Task Rpc_Health_Check_Should_Be_Unhealthy_If_Kafka_Is_Down_After_Start()
+        {
+            using var timeout = new CancellationTokenSource(Timeout);
             using var rpc = Rpc.Create(_env);
 
             try
             {
-                await _env.Kafka.Stop(timeout.Token);
+                await _env.Kafka!.Stop(timeout.Token);
 
                 var health = await rpc.WaitForHealth(h => h.IsHealthy, timeout.Token);
 
@@ -48,7 +71,7 @@ namespace Simple.Kafka.Rpc.IntegrationTests.Tests
             }
             finally
             {
-                await _env.Kafka.Run(new Dictionary<string, string>());
+                await _env.Kafka!.Run(Environment.EmptyEnvVariables);
             }
         }
     }

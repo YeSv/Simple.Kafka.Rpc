@@ -1,5 +1,6 @@
 ﻿using Confluent.Kafka;
 using Docker.DotNet;
+using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -11,17 +12,23 @@ namespace Simple.Kafka.Rpc.IntegrationTests
 {
     public sealed class Environment : IDisposable
     {
-        public Environment(ITestOutputHelper output) 
+        public static Dictionary<string, string> EmptyEnvVariables = new();
+
+        public ITestOutputHelper? Output { get; private set; }
+
+        public KafkaContainer? Kafka { get; private set; }
+
+        public Environment Start(ITestOutputHelper output)
         {
             Output = output;
-            Kafka = new (new DockerEnvironmentBuilder().DockerClient, output);
+            Kafka = new KafkaContainer(new DockerEnvironmentBuilder().DockerClient, Output);
+
+            Kafka.Run(new Dictionary<string, string>()).GetAwaiter().GetResult();
+
+            return this;
         }
 
-        public ITestOutputHelper Output { get; }
-
-        public KafkaContainer Kafka { get; }
-
-        public void Dispose() => Kafka.Dispose();
+        public void Dispose() => Kafka?.Dispose();
     }
 
     public sealed class KafkaContainer : Container
@@ -39,13 +46,13 @@ namespace Simple.Kafka.Rpc.IntegrationTests
                 [9092] = 9092,
                 [2181] = 2181
             },
-            containerWaiter: new KafkaWaiter(output))
+            containerWaiter: new KafkaWaiter(output),
+            logger: new ContainerLogger(output))
         {
             Producer = new ProducerBuilder<byte[], byte[]>(new ProducerConfig
             {
                 BootstrapServers = "localhost:9092",
-                MessageTimeoutMs = 5000,
-                MessageSendMaxRetries = int.MaxValue
+                MessageTimeoutMs = 5000
             }).Build();
         }
 
@@ -83,5 +90,19 @@ namespace Simple.Kafka.Rpc.IntegrationTests
 
             public Task<bool> Wait(Container container, CancellationToken cancellationToken) => Wait((KafkaContainer)container, cancellationToken);
         }
+    }
+
+    public sealed class ContainerLogger : ILogger
+    {
+        readonly ITestOutputHelper _output;
+
+        public ContainerLogger(ITestOutputHelper output) => _output = output;
+
+        public IDisposable BeginScope<TState>(TState state) => throw new NotImplementedException();
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception, Func<TState, Exception, string> formatter) =>
+            _output.WriteLine($"[{logLevel}, {eventId}]: {formatter(state, exception)}");
     }
 }

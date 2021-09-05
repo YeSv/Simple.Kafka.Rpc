@@ -15,6 +15,7 @@ namespace Simple.Kafka.Rpc.IntegrationTests
                 .WithConfig(c =>
                 {
                     c.Topics = new[] { ResponsesTopic };
+                    c.RecreateConsumerOnZeroPartitionsAssigned = true;
                 })
                 .Consumer
                 .WithConfig(c => c.BootstrapServers = "localhost:9092")
