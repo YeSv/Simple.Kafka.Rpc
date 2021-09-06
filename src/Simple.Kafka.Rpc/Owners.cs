@@ -80,6 +80,8 @@ namespace Simple.Kafka.Rpc
             catch (Exception ex)
             {
                 _builder.RpcHandler.OnRpcLog?.Invoke(new(nameof(RpcClient), SyslogLevel.Critical, string.Empty, $"Failed to recreate producer instance. Exception occurred: {ex}"));
+                _stateChanger.Post(new ChangeHealthCommand(senderId, Rpc.Health.FailedToRecreateProducer));
+                Task.Delay(_config.ProducerRecreationPause).ContinueWith(t => _stateChanger?.Post(new RecreateCommand(senderId)));
             }
         }
 
@@ -134,14 +136,18 @@ namespace Simple.Kafka.Rpc
                     }
                     oldError?.Invoke(c, error);
                 };
-            });
 
-            _health = Rpc.Health.Healthy;
+                var oldAssigned = e.OnAssigned;
+                e.OnAssigned = (c, p) =>
+                {
+                    if (_config.UnhealthyIfNoPartitionsAssigned) _stateChanger?.Post(new PartitionsNumberChanged(p.Count));
+                    oldAssigned?.Invoke(c, p);
+                };
+            }).WithConfig(c => c.EnablePartitionEof = true);
 
             _source = new();
             _consumer = new(_builder.Build(), c => c.Close());
             _rent = _consumer.Rent();
-            _task = Task.Factory.StartNew(Handler, _source.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
             _stateChanger = new(cmd =>
             {
@@ -149,8 +155,13 @@ namespace Simple.Kafka.Rpc
                 {
                     case ChangeHealthCommand c: SetHealth(c.Id, c.Change); break;
                     case RecreateCommand r: Recreate(r.Id); break;
+                    case PartitionsNumberChanged p: PartitionsNumChanged(p.Assigned); break;
                 }
             }, new ExecutionDataflowBlockOptions { MaxDegreeOfParallelism = 1 });
+
+            if (Warmup()) _health = Rpc.Health.Healthy;
+
+            _task = Task.Factory.StartNew(Handler, _source.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
         }
 
         public HealthResult Health => _health;
@@ -175,14 +186,17 @@ namespace Simple.Kafka.Rpc
 
                 oldRent.Dispose();
 
+                if (Warmup()) _health = Rpc.Health.Healthy;
+
                 _task = Task.Factory.StartNew(Handler, _source.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
-                _health = Rpc.Health.Healthy;
                 _builder.RpcHandler.OnRpcLog?.Invoke(RecreatedMessage);
             }
             catch (Exception ex)
             {
                 _builder.RpcHandler.OnRpcLog?.Invoke(new(nameof(RpcClient), SyslogLevel.Critical, string.Empty, $"Failed to recreate consumer instance. Exception occurred: {ex}"));
+                _stateChanger.Post(new ChangeHealthCommand(senderId, Rpc.Health.FailedToRecreateConsumer));
+                Task.Delay(_config.ConsumerRecreationPause).ContinueWith(t => _stateChanger?.Post(new RecreateCommand(senderId)));
             }
         }
 
@@ -190,6 +204,12 @@ namespace Simple.Kafka.Rpc
         {
             if (_rent.Value!.Name != senderId) return; // Do nothing 
             _health = health;
+        }
+
+        internal void PartitionsNumChanged(int assigned)
+        {
+            if (assigned == 0 && _config.UnhealthyIfNoPartitionsAssigned) _health = Rpc.Health.ConsumerAssignedToZeroPartitions;
+            if (assigned != 0 && _health == Rpc.Health.ConsumerAssignedToZeroPartitions) _health = Rpc.Health.Healthy;
         }
 
         public void Dispose()
@@ -211,8 +231,6 @@ namespace Simple.Kafka.Rpc
             _builder.RpcHandler.OnRpcLog?.Invoke(ConsumerThreadStarted);
             try
             {
-                consumer.Value!.Subscribe(_config.Topics);
-
                 while (!token.IsCancellationRequested)
                 {
                     try
@@ -254,6 +272,31 @@ namespace Simple.Kafka.Rpc
             _builder.RpcHandler.OnRpcLog?.Invoke(ConsumerThreadStopped);
         }
 
+        bool Warmup()
+        {
+            using var rent = _consumer.Rent();
+            rent.Value!.Subscribe(_config.Topics ?? Array.Empty<string>());
+
+            if (!_config.UnhealthyIfNoPartitionsAssigned) return true;
+            
+            using var warmupTimeout = new CancellationTokenSource(_config.ConsumerWarmupDuration);
+            var token = warmupTimeout.Token;
+
+            try
+            {
+                while (true)
+                {
+                    var consumeResult = rent.Value!.Consume(warmupTimeout.Token);
+                    if (consumeResult != null && consumeResult.IsPartitionEOF) return true;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                _stateChanger.Post(new ChangeHealthCommand(rent.Value!.Name, Rpc.Health.ConsumerAssignedToZeroPartitions));
+                return false;
+            }
+        }
+
         static readonly LogMessage ConsumerThreadStopped = new(nameof(RpcClient), SyslogLevel.Info, string.Empty, "Consumer thread stopped");
         static readonly LogMessage ConsumerThreadStarted = new (nameof(RpcClient), SyslogLevel.Info, string.Empty, "Consumer thread started");
         static readonly LogMessage RecreatingMessage = new(nameof(RpcClient), SyslogLevel.Info, string.Empty, "Fatal error occurred, recreating consumer instance");
@@ -264,7 +307,8 @@ namespace Simple.Kafka.Rpc
     internal enum StateChangeCommand : byte
     {
         Recreate,
-        ChangeHealth
+        ChangeHealth,
+        PartitionsNumberChanged
     }
 
     internal interface IStateChangeCommand 
@@ -287,5 +331,13 @@ namespace Simple.Kafka.Rpc
         public StateChangeCommand Type => StateChangeCommand.ChangeHealth;
 
         public ChangeHealthCommand(string id, HealthResult change) => (Id, Change) = (id, change);
+    }
+
+    internal sealed class PartitionsNumberChanged : IStateChangeCommand
+    {
+        public int Assigned { get; }
+        public StateChangeCommand Type => StateChangeCommand.PartitionsNumberChanged;
+
+        public PartitionsNumberChanged(int assigned) => Assigned = assigned;
     }
 }

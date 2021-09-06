@@ -18,17 +18,27 @@ namespace Simple.Kafka.Rpc.IntegrationTests
 
         public KafkaContainer? Kafka { get; private set; }
 
+        public DockerClient? Client { get; private set; }
+
         public Environment Start(ITestOutputHelper output)
         {
             Output = output;
-            Kafka = new KafkaContainer(new DockerEnvironmentBuilder().DockerClient, Output);
+
+            Client = new DockerEnvironmentBuilder().DockerClient;
+            Client.DefaultTimeout = TimeSpan.FromSeconds(60);
+
+            Kafka = new KafkaContainer(Client, Output);
 
             Kafka.Run(new Dictionary<string, string>()).GetAwaiter().GetResult();
 
             return this;
         }
 
-        public void Dispose() => Kafka?.Dispose();
+        public void Dispose() 
+        { 
+            Kafka?.Dispose();
+            Client?.Dispose();
+        }
     }
 
     public sealed class KafkaContainer : Container
@@ -52,7 +62,7 @@ namespace Simple.Kafka.Rpc.IntegrationTests
             Producer = new ProducerBuilder<byte[], byte[]>(new ProducerConfig
             {
                 BootstrapServers = "localhost:9092",
-                MessageTimeoutMs = 5000
+                MessageTimeoutMs = 60_000
             }).Build();
         }
 
@@ -74,7 +84,7 @@ namespace Simple.Kafka.Rpc.IntegrationTests
             {
                 try
                 {
-                    await container.Producer.ProduceAsync("waiter-healthcheck", new Message<byte[], byte[]>
+                    await container.Producer.ProduceAsync("responses", new Message<byte[], byte[]>
                     {
                         Key = Array.Empty<byte>(),
                         Value = Array.Empty<byte>()
@@ -84,6 +94,11 @@ namespace Simple.Kafka.Rpc.IntegrationTests
                 catch (ProduceException<byte[], byte[]> ex)
                 {
                     _output.WriteLine($"Produce exception occurred. Exception: {ex}");
+                    return false;
+                }
+                catch (Exception ex)
+                {
+                    _output.WriteLine($"Unhandled exception occurred. Exception: {ex}");
                     return false;
                 }
             }
