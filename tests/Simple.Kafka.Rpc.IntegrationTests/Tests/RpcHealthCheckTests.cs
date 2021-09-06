@@ -62,9 +62,14 @@ namespace Simple.Kafka.Rpc.IntegrationTests.Tests
 
             try
             {
+                var health = await rpc.WaitForHealth(h => h.IsHealthy, timeout.Token);
+                health.IsHealthy.Should().BeTrue();
+                health.Reason.Should().BeNull();
+
+
                 await _env.Kafka!.Stop(timeout.Token);
 
-                var health = await rpc.WaitForHealth(h => h.IsHealthy, timeout.Token);
+                health = await rpc.WaitForHealth(h => !h.IsHealthy, timeout.Token);
 
                 health.IsHealthy.Should().BeFalse();
                 health.Reason.Should().NotBeNullOrWhiteSpace();
