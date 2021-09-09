@@ -57,7 +57,7 @@ namespace Simple.Kafka.Rpc.IntegrationTests.Tests
         [Fact]
         public async Task Rpc_Health_Check_Should_Be_Unhealthy_If_Kafka_Is_Down_After_Start()
         {
-            using var timeout = new CancellationTokenSource(Timeout);
+            using var timeout = new CancellationTokenSource(Timeout * 2);
             using var rpc = Rpc.Create(_env);
 
             try
@@ -73,6 +73,37 @@ namespace Simple.Kafka.Rpc.IntegrationTests.Tests
 
                 health.IsHealthy.Should().BeFalse();
                 health.Reason.Should().NotBeNullOrWhiteSpace();
+            }
+            finally
+            {
+                await _env.Kafka!.Run(Environment.EmptyEnvVariables);
+            }
+        }
+
+        [Fact]
+        public async Task Rpc_Health_Check_Should_Recover()
+        {
+            using var timeout = new CancellationTokenSource(Timeout * 2);
+            using var rpc = Rpc.Create(_env);
+
+            try
+            {
+                var health = await rpc.WaitForHealth(h => h.IsHealthy, timeout.Token);
+                health.IsHealthy.Should().BeTrue();
+                health.Reason.Should().BeNull();
+
+                await _env.Kafka!.Stop(timeout.Token);
+
+                health = await rpc.WaitForHealth(h => !h.IsHealthy, timeout.Token);
+                health.IsHealthy.Should().BeFalse();
+                health.Reason.Should().NotBeNullOrWhiteSpace();
+
+
+                await _env.Kafka!.Run(Environment.EmptyEnvVariables);
+                
+                health = await rpc.WaitForHealth(h => h.IsHealthy, timeout.Token);
+                health.IsHealthy.Should().BeTrue();
+                health.Reason.Should().BeNull();
             }
             finally
             {

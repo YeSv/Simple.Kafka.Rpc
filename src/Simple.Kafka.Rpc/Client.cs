@@ -42,7 +42,7 @@ namespace Simple.Kafka.Rpc
         readonly ProducerOwner _producer;
         readonly ConsumerOwner _consumer;
         readonly TaskBufferPool _taskBuffers;
-        readonly Observable<ConsumeResult<byte[], byte[]>> _observable;
+        readonly Responses<ConsumeResult<byte[], byte[]>> _responses;
 
         internal RpcClient(RpcBuilder builder)
         {
@@ -52,12 +52,12 @@ namespace Simple.Kafka.Rpc
                 var old = e.OnRpcMessage;
                 e.OnRpcMessage = (s, r) =>
                 {
-                    _observable?.Complete(s, r);
+                    _responses?.Complete(s, r);
                     old?.Invoke(s, r);
                 };
             });
 
-            _observable = new ();
+            _responses = new ();
             _producer = new (builder.Producer, builder.Config);
             _consumer = new (builder.Consumer, builder.Config);
             _taskBuffers = new(2, Environment.ProcessorCount * 4);
@@ -88,7 +88,7 @@ namespace Simple.Kafka.Rpc
             {
                 message.WithRpcRequestId(subscription.ToByteArray());
 
-                var subscriptionTask = _observable.Subscribe(subscription);
+                var subscriptionTask = _responses.Subscribe(subscription);
 
                 using var producerRent = _producer.Rent();
                 var produceResult = await producerRent.Value!.ProduceAsync(topic, message).ConfigureAwait(false);
@@ -100,7 +100,7 @@ namespace Simple.Kafka.Rpc
                 var resultTask = await Task.WhenAny((Task[])taskBufferRent.Value).ConfigureAwait(false);
                 if (resultTask != subscriptionTask)
                 {
-                    _observable.Unsubscribe(subscription);
+                    _responses.Unsubscribe(subscription);
                     return UniResult.Error<ConsumeResult<byte[], byte[]>, RpcException>(RpcException.Timeout(subscription));
                 }
 
@@ -108,7 +108,7 @@ namespace Simple.Kafka.Rpc
             }
             catch (Exception ex)
             {
-                _observable.Unsubscribe(subscription);
+                _responses.Unsubscribe(subscription);
                 return UniResult.Error<ConsumeResult<byte[], byte[]>, RpcException>(ex switch 
                 {
                     ProduceException<byte[], byte[]> e => RpcException.Kafka(subscription, ex),
@@ -125,7 +125,7 @@ namespace Simple.Kafka.Rpc
         {
             _producer?.Dispose();
             _consumer?.Dispose();
-            _observable?.Dispose();
+            _responses?.Dispose();
         }
     }
 }

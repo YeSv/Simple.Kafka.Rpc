@@ -1,6 +1,10 @@
 ﻿using Confluent.Kafka;
 using Simple.Dotnet.Utilities.Results;
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Simple.Kafka.Rpc
 {
@@ -39,6 +43,42 @@ namespace Simple.Kafka.Rpc
             catch (Exception ex)
             {
                 return Result.Error<Guid, Exception>(ex);
+            }
+        }
+    }
+
+    // See https://docs.confluent.io/5.5.0/clients/librdkafka/md_STATISTICS.html
+    // Only brokers are used to check the health of a cluster from the librdkafka point of view
+    public sealed class RpcKafkaStatistics
+    {
+        [JsonPropertyName("brokers")]
+        public Dictionary<string, BrokerStatistics> Brokers { get; set; } = new ();
+
+        public sealed class BrokerStatistics
+        {
+            [JsonPropertyName("name")]
+            public string Name { get; set; }
+
+
+            [JsonPropertyName("state")]
+            public string State { get; set; }
+        }
+
+        public (int UnavailableBrokers, int AllBrokers) GetBrokerStats()
+        {
+            var query = Brokers.Where(b => !string.Equals(b.Key, "GroupCoordinator", StringComparison.OrdinalIgnoreCase));
+            return (query.Count(b => string.Equals(b.Value.State, "DOWN", StringComparison.OrdinalIgnoreCase)), query.Count());
+        }
+
+        public static UniResult<RpcKafkaStatistics, Exception> Parse(string json)
+        {
+            try
+            {
+                return UniResult.Ok<RpcKafkaStatistics, Exception>(JsonSerializer.Deserialize<RpcKafkaStatistics>(json));
+            }
+            catch (Exception ex)
+            {
+                return UniResult.Error<RpcKafkaStatistics, Exception>(ex);
             }
         }
     }

@@ -41,6 +41,23 @@ namespace Simple.Kafka.Rpc
                     }
                     old?.Invoke(p, error);
                 };
+
+                var oldStatistics = e.OnStatistics;
+                e.OnStatistics = _config.EnableBrokerAvailabilityHealthCheck ? (c, s) =>
+                {
+                    var parsed = RpcKafkaStatistics.Parse(s);
+                    if (!parsed.IsOk) _builder?.RpcHandler.OnRpcLog?.Invoke(new LogMessage(nameof(RpcClient), SyslogLevel.Error, string.Empty, $"Failed to parse kafka statistics. Exception: {parsed.Error}"));
+                    else
+                    {
+                        var (unavailableBrokers, allBrokers) = parsed.Ok!.GetBrokerStats();
+                        _stateChanger?.Post(new ChangeBrokersNumberHealthCommand(c.Name, unavailableBrokers, allBrokers));
+                    }
+
+                    oldStatistics?.Invoke(c, s);
+                } : oldStatistics;
+            }).WithConfig(c =>
+            {
+                if (_config.EnableBrokerAvailabilityHealthCheck && !c.StatisticsIntervalMs.HasValue) c.StatisticsIntervalMs = (int)_config.ProducerRecreationPause.TotalMilliseconds;
             });
 
             _health = Rpc.Health.Healthy;
@@ -54,6 +71,7 @@ namespace Simple.Kafka.Rpc
                 {
                     case ChangeHealthCommand c: SetHealth(c.Id, c.Change); break;
                     case RecreateCommand r: Recreate(r.Id); break;
+                    case ChangeBrokersNumberHealthCommand b: BrokersNumChanged(b.UnavailableBrokers, b.TotalBrokers); break;
                 }
             }, new ExecutionDataflowBlockOptions { MaxDegreeOfParallelism = 1 });
         }
@@ -85,10 +103,18 @@ namespace Simple.Kafka.Rpc
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal void SetHealth(string senderId, HealthResult health)
         {
             if (_rent.Value!.Name != senderId) return; // Do nothing 
             _health = health;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal void BrokersNumChanged(int unavailable, int total)
+        {
+            if (unavailable == total) _health = Rpc.Health.AllBrokersUnavailable;
+            if (unavailable < total && _health == Rpc.Health.AllBrokersUnavailable) _health = Rpc.Health.Healthy;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -140,10 +166,28 @@ namespace Simple.Kafka.Rpc
                 var oldAssigned = e.OnAssigned;
                 e.OnAssigned = (c, p) =>
                 {
-                    if (_config.UnhealthyIfNoPartitionsAssigned) _stateChanger?.Post(new PartitionsNumberChanged(p.Count));
+                    if (_config.UnhealthyIfNoPartitionsAssigned) _stateChanger?.Post(new ChangePartitionsNumberHealthCommand(c.Name, p.Count));
                     oldAssigned?.Invoke(c, p);
                 };
-            }).WithConfig(c => c.EnablePartitionEof = true);
+
+                var oldStatistics = e.OnStatistics;
+                e.OnStatistics = _config.EnableBrokerAvailabilityHealthCheck ? (c, s) =>
+                {
+                    var parsed = RpcKafkaStatistics.Parse(s);
+                    if (!parsed.IsOk) _builder?.RpcHandler.OnRpcLog?.Invoke(new LogMessage(nameof(RpcClient), SyslogLevel.Error, string.Empty, $"Failed to parse kafka statistics. Exception: {parsed.Error}"));
+                    else
+                    {
+                        var (unavailableBrokers, allBrokers) = parsed.Ok!.GetBrokerStats();
+                        _stateChanger?.Post(new ChangeBrokersNumberHealthCommand(c.Name, unavailableBrokers, allBrokers));
+                    }
+
+                    oldStatistics?.Invoke(c, s);
+                } : oldStatistics;
+            }).WithConfig(c => 
+            {
+                c.EnablePartitionEof = true;
+                if (_config.EnableBrokerAvailabilityHealthCheck && !c.StatisticsIntervalMs.HasValue) c.StatisticsIntervalMs = (int)_config.ConsumerRecreationPause.TotalMilliseconds;
+            });
 
             _source = new();
             _consumer = new(_builder.Build(), c => c.Close());
@@ -151,11 +195,14 @@ namespace Simple.Kafka.Rpc
 
             _stateChanger = new(cmd =>
             {
+                if (_rent.Value?.Name != cmd.Id) return;
+
                 switch (cmd)
                 {
-                    case ChangeHealthCommand c: SetHealth(c.Id, c.Change); break;
                     case RecreateCommand r: Recreate(r.Id); break;
-                    case PartitionsNumberChanged p: PartitionsNumChanged(p.Assigned); break;
+                    case ChangeHealthCommand c: _health = c.Change; break;
+                    case ChangePartitionsNumberHealthCommand p: PartitionsNumChanged(p.Assigned); break;
+                    case ChangeBrokersNumberHealthCommand b: BrokersNumChanged(b.UnavailableBrokers, b.TotalBrokers); break;
                 }
             }, new ExecutionDataflowBlockOptions { MaxDegreeOfParallelism = 1 });
 
@@ -171,9 +218,6 @@ namespace Simple.Kafka.Rpc
             try
             {
                 var oldRent = _rent;
-
-                using var rent = _consumer.Rent();
-                if (rent.Value!.Name != senderId) return; // Consumer was changed already
 
                 _builder.RpcHandler.OnRpcLog?.Invoke(RecreatingMessage);
 
@@ -200,16 +244,18 @@ namespace Simple.Kafka.Rpc
             }
         }
 
-        internal void SetHealth(string senderId, HealthResult health)
-        {
-            if (_rent.Value!.Name != senderId) return; // Do nothing 
-            _health = health;
-        }
-
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal void PartitionsNumChanged(int assigned)
         {
             if (assigned == 0 && _config.UnhealthyIfNoPartitionsAssigned) _health = Rpc.Health.ConsumerAssignedToZeroPartitions;
             if (assigned != 0 && _health == Rpc.Health.ConsumerAssignedToZeroPartitions) _health = Rpc.Health.Healthy;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal void BrokersNumChanged(int unavailable, int total)
+        {
+            if (unavailable == total) _health = Rpc.Health.AllBrokersUnavailable;
+            if (unavailable < total && _health == Rpc.Health.AllBrokersUnavailable) _health = Rpc.Health.Healthy;
         }
 
         public void Dispose()
@@ -247,10 +293,9 @@ namespace Simple.Kafka.Rpc
                         var requestId = result.Message.GetRpcRequestId();
                         if (requestId == null) continue;
 
-                        var parseResult = requestId!.ParseRpcRequestId();
+                        var parseResult = requestId.ParseRpcRequestId();
                         if (!parseResult.IsOk) _builder.RpcHandler.OnRpcLog?.Invoke(new(nameof(RpcClient), SyslogLevel.Info, string.Empty, $"Failed to parse {RpcHeaders.RpcRequestID} header. TPO: {result.TopicPartitionOffset}. Exception: {parseResult.Error!}"));
-
-                        _builder.RpcHandler.OnRpcMessage?.Invoke(parseResult.Ok, result);
+                        else _builder.RpcHandler.OnRpcMessage?.Invoke(parseResult.Ok, result);
                     }
                     catch (ConsumeException ex)
                     {
@@ -258,7 +303,7 @@ namespace Simple.Kafka.Rpc
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
-                        _builder.RpcHandler.OnRpcLog?.Invoke(new(nameof(RpcClient), SyslogLevel.Info, string.Empty, $"Unhandled exception occured in consumer thread: {ex}"));
+                        _builder.RpcHandler.OnRpcLog?.Invoke(new(nameof(RpcClient), SyslogLevel.Info, string.Empty, $"Unhandled exception occurred in consumer thread: {ex}"));
                         if (_config.StopConsumerOnUnhandledException)
                         {
                             _stateChanger?.Post(new ChangeHealthCommand(consumer.Value!.Name, Rpc.Health.ConsumerStoppedDueToUnhandledException));
@@ -286,8 +331,8 @@ namespace Simple.Kafka.Rpc
             {
                 while (true)
                 {
-                    var consumeResult = rent.Value!.Consume(warmupTimeout.Token);
-                    if (consumeResult != null && consumeResult.IsPartitionEOF) return true;
+                    var consumeResult = rent.Value!.Consume(token);
+                    if (consumeResult is { IsPartitionEOF: true }) return true;
                 }
             }
             catch (OperationCanceledException)
@@ -304,22 +349,14 @@ namespace Simple.Kafka.Rpc
         static readonly LogMessage ExceptionConsumerWontBeRecreated = new(nameof(RpcClient), SyslogLevel.Critical, string.Empty, $"Consumer won't be recreated because {nameof(RpcConfig.StopConsumerOnUnhandledException)} is true");
     }
 
-    internal enum StateChangeCommand : byte
-    {
-        Recreate,
-        ChangeHealth,
-        PartitionsNumberChanged
-    }
-
     internal interface IStateChangeCommand 
     {
-        StateChangeCommand Type { get; }
+        public string Id { get; }
     }
 
     internal sealed class RecreateCommand : IStateChangeCommand
     {
         public string Id { get; }
-        public StateChangeCommand Type => StateChangeCommand.Recreate;
 
         public RecreateCommand(string id) => Id = id;
     }
@@ -327,17 +364,25 @@ namespace Simple.Kafka.Rpc
     internal sealed class ChangeHealthCommand : IStateChangeCommand
     {
         public string Id { get; }
-        public HealthResult Change { get;  }
-        public StateChangeCommand Type => StateChangeCommand.ChangeHealth;
+        public HealthResult Change { get; }
 
         public ChangeHealthCommand(string id, HealthResult change) => (Id, Change) = (id, change);
     }
 
-    internal sealed class PartitionsNumberChanged : IStateChangeCommand
+    internal sealed class ChangePartitionsNumberHealthCommand : IStateChangeCommand
     {
+        public string Id { get; }
         public int Assigned { get; }
-        public StateChangeCommand Type => StateChangeCommand.PartitionsNumberChanged;
 
-        public PartitionsNumberChanged(int assigned) => Assigned = assigned;
+        public ChangePartitionsNumberHealthCommand(string id, int assigned) => (Id, Assigned) = (id, assigned);
+    }
+
+    internal sealed class ChangeBrokersNumberHealthCommand : IStateChangeCommand
+    {
+        public string Id { get; }
+        public int TotalBrokers { get; }
+        public int UnavailableBrokers { get; }
+
+        public ChangeBrokersNumberHealthCommand(string id, int unavailableBrokers, int totalBrokers) => (Id, TotalBrokers, UnavailableBrokers) = (id, totalBrokers, unavailableBrokers);
     }
 }

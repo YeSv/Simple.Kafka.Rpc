@@ -11,15 +11,6 @@
         public static HealthResult Unhealthy(string reason) => new (false, reason);
     }
 
-    internal readonly struct HealthChange
-    {
-        public readonly string Id;
-        public readonly HealthResult Result;
-
-        public HealthChange(string id, HealthResult result) => (Id, Result) = (id, result);
-    }
-
-
     public static class Health
     {
         public static readonly HealthResult Healthy = HealthResult.Healthy;
@@ -33,5 +24,8 @@
         // Producer:
         public static readonly HealthResult FailedToRecreateProducer = HealthResult.Unhealthy("Failed to recreate producer instance");
         public static readonly HealthResult ProducerFatalError = HealthResult.Unhealthy("Received fatal producer error");
+
+        // Shared:
+        public static readonly HealthResult AllBrokersUnavailable = HealthResult.Unhealthy("All brokers are unavailable");
     }
 }
