@@ -16,6 +16,7 @@ namespace Simple.Kafka.Rpc.IntegrationTests
                 {
                     c.Topics = new[] { ResponsesTopic };
                     c.UnhealthyIfNoPartitionsAssigned = true;
+                    c.EnableBrokerAvailabilityHealthCheck = true;
                 })
                 .Consumer
                 .WithConfig(c => c.BootstrapServers = "localhost:9092")
@@ -32,7 +33,7 @@ namespace Simple.Kafka.Rpc.IntegrationTests
                     e.OnAssigned = (c, e) => env.Output.WriteLine($"Assigned: {string.Join(",", e)}");
                     e.OnRevoked = (c, r) => env.Output.WriteLine($"Revoked: {string.Join(",", r)}");
                     e.OnCommitted = (c, t) => env.Output.WriteLine($"Committed: {string.Join(",", t.Offsets)}");
-                    e.OnStatistics = (c, s) => env.Output.WriteLine($"Consumer tatistics: {s}");
+                    e.OnStatistics = (c, s) => env.Output.WriteLine($"Consumer statistics: {s}");
                     e.OnError = (c, e) => env.Output.WriteLine($"Consumer error occurred: {e.Reason}");
                     e.OnLog = (c, e) => env.Output.WriteLine($"Consumer log: {e.Message} [{e.Level}]");
                 })

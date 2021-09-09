@@ -28,19 +28,12 @@ namespace Simple.Kafka.Rpc
         }
     }
 
-    internal static class ObservableCommands
-    {
-        public static Command<T> Add<T>(Guid subscription, TaskCompletionSource<T> tcs) => new (CommandType.Add, subscription, default, tcs);
-        public static Command<T> Complete<T>(Guid subscription, T data) => new (CommandType.Complete, subscription, data, default);
-        public static Command<T> Remove<T>(Guid subscription) => new (CommandType.Remove, subscription, default, default);
-    }
-
-    internal sealed class Observable<T> : IDisposable
+    internal sealed class Responses<T> : IDisposable
     {
         readonly ActionBlock<Command<T>> _handler;
         readonly Dictionary<Guid, TaskCompletionSource<T>> _subscriptions;
 
-        public Observable()
+        public Responses()
         {
             _subscriptions = new();
             _handler = new(c =>
@@ -61,19 +54,26 @@ namespace Simple.Kafka.Rpc
         public Task<T> Subscribe(Guid subscription)
         {
             var tcs = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _handler.Post(ObservableCommands.Add(subscription, tcs));
+            _handler.Post(Commands.Add(subscription, tcs));
             return tcs.Task;
         }
 
-        public void Unsubscribe(Guid subscription) => _handler.Post(ObservableCommands.Remove<T>(subscription));
+        public void Unsubscribe(Guid subscription) => _handler.Post(Commands.Remove(subscription));
 
-        public void Complete(Guid subscription, T data) => _handler.Post(ObservableCommands.Complete(subscription, data));
+        public void Complete(Guid subscription, T data) => _handler.Post(Commands.Complete(subscription, data));
 
         public void Dispose()
         {
             _handler?.Complete();
             _handler?.Completion.Wait();
             _subscriptions?.Clear();
+        }
+
+        internal static class Commands
+        {
+            public static Command<T> Add(Guid subscription, TaskCompletionSource<T> tcs) => new(CommandType.Add, subscription, default, tcs);
+            public static Command<T> Complete(Guid subscription, T data) => new(CommandType.Complete, subscription, data, default);
+            public static Command<T> Remove(Guid subscription) => new(CommandType.Remove, subscription, default, default);
         }
     }
 }
