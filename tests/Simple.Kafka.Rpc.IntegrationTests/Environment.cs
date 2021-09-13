@@ -1,6 +1,7 @@
 ﻿using Confluent.Kafka;
 using Docker.DotNet;
 using Microsoft.Extensions.Logging;
+using Simple.Dotnet.Utilities.Tasks;
 using System;
 using System.Collections.Generic;
 using System.Threading;
@@ -76,6 +77,14 @@ namespace Simple.Kafka.Rpc.IntegrationTests
 
         public sealed class KafkaWaiter : IContainerWaiter<KafkaContainer>
         {
+            static readonly TaskBufferPool<DeliveryResult<byte[], byte[]>> Pool = new (10);
+
+            static readonly Message<byte[], byte[]> Empty = new Message<byte[], byte[]>
+            {
+                Key = Array.Empty<byte>(),
+                Value = Array.Empty<byte>()
+            };
+
             readonly ITestOutputHelper _output;
 
             public KafkaWaiter(ITestOutputHelper output) => _output = output;
@@ -84,11 +93,18 @@ namespace Simple.Kafka.Rpc.IntegrationTests
             {
                 try
                 {
-                    await container.Producer.ProduceAsync("responses", new Message<byte[], byte[]>
-                    {
-                        Key = Array.Empty<byte>(),
-                        Value = Array.Empty<byte>()
-                    });
+                    using var rent = Pool.Get();
+
+                    rent.Value.Append(container.Producer.ProduceAsync(Rpc.RequestsTopic, Empty));
+                    rent.Value.Append(container.Producer.ProduceAsync(Rpc.ResponsesTopic, Empty));
+                    rent.Value.Append(container.Producer.ProduceAsync(Ping.Topic, Empty));
+                    rent.Value.Append(container.Producer.ProduceAsync(Pong.Topic, Empty));
+                    
+
+                    await Task.WhenAll((Task[])rent.Value);
+
+                    for (var i = 0; i < rent.Value.Written; i++) await rent.Value.WrittenSpan[i];
+                    
                     return true;
                 }
                 catch (ProduceException<byte[], byte[]> ex)

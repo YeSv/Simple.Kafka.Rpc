@@ -67,7 +67,7 @@ namespace Simple.Kafka.Rpc
         public (int UnavailableBrokers, int AllBrokers) GetBrokerStats()
         {
             var query = Brokers.Where(b => !string.Equals(b.Key, "GroupCoordinator", StringComparison.OrdinalIgnoreCase));
-            return (query.Count(b => string.Equals(b.Value.State, "DOWN", StringComparison.OrdinalIgnoreCase)), query.Count());
+            return (query.Count(b => !string.Equals(b.Value.State, "UP", StringComparison.OrdinalIgnoreCase)), query.Count());
         }
 
         public static UniResult<RpcKafkaStatistics, Exception> Parse(string json)
