@@ -14,7 +14,7 @@ namespace Simple.Kafka.Rpc.IntegrationTests
             var builder = new RpcBuilder()
                 .WithConfig(c =>
                 {
-                    c.Topics = new[] { ResponsesTopic };
+                    c.Topics = new[] { ResponsesTopic, Pong.Topic };
                     c.UnhealthyIfNoPartitionsAssigned = true;
                     c.EnableBrokerAvailabilityHealthCheck = true;
                 })
