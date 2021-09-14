@@ -1,4 +1,5 @@
-﻿using FluentAssertions;
+﻿using Confluent.Kafka;
+using FluentAssertions;
 using System;
 using System.Linq;
 using System.Threading;
@@ -64,6 +65,59 @@ namespace Simple.Kafka.Rpc.IntegrationTests.Tests
                 task.Result.IsOk.Should().BeTrue();
                 task.Result.Ok.Time.Should().NotBe(default);
 
+            }
+        }
+
+        [Fact]
+        public async Task Rpc_Send_Should_Respect_Producer_Timeout()
+        {
+            await _env.Kafka!.Stop();
+            try
+            {
+                using var rpc = Rpc.Create(_env, c => c.Producer.Kafka.MessageTimeoutMs = 1_000);
+
+                var result = await rpc.Ping();
+
+                result.IsOk.Should().BeFalse();
+                result.Error!.Should().BeOfType<RpcException>();
+                ((RpcException)result.Error!).Type.Should().Be(ErrorType.Kafka);
+                ((RpcException)result.Error!).InnerException.Should().BeOfType<ProduceException<byte[], byte[]>>();
+                ((ProduceException<byte[], byte[]>)((RpcException)result.Error).InnerException).Error.Code.Should().Be(ErrorCode.Local_MsgTimedOut);
+            }
+            finally
+            {
+                await _env.Kafka.Run(Environment.EmptyEnvVariables);
+            }
+        }
+
+        [Fact]
+        public async Task Rpc_Send_Should_Still_Work_After_Transient_Error()
+        {
+            try
+            {
+                using var rpc = Rpc.Create(_env, c => c.Producer.Kafka.MessageTimeoutMs = 10_000);
+
+                await _env.Kafka.Stop();
+
+                var failedResult = await rpc.Ping();
+
+                failedResult.IsOk.Should().BeFalse();
+                failedResult.Error!.Should().BeOfType<RpcException>();
+                ((RpcException)failedResult.Error!).Type.Should().Be(ErrorType.Kafka);
+
+
+                await _env.Kafka.Run(Environment.EmptyEnvVariables);
+
+                using var server = new PingServer(_env);
+                await Task.Delay(5_000); // Wait some time to give ping server a chance to consume
+
+                var okResult = await rpc.Ping();
+                okResult.IsOk.Should().BeTrue();
+                okResult.Ok.Time.Should().NotBe(default(DateTime));
+            }
+            finally
+            {
+                await _env.Kafka.Run(Environment.EmptyEnvVariables);
             }
         }
     }

@@ -14,6 +14,7 @@ namespace Simple.Kafka.Rpc.IntegrationTests
             var builder = new RpcBuilder()
                 .WithConfig(c =>
                 {
+                    c.RequestTimeout = TimeSpan.FromSeconds(30);
                     c.Topics = new[] { ResponsesTopic, Pong.Topic };
                     c.UnhealthyIfNoPartitionsAssigned = true;
                     c.EnableBrokerAvailabilityHealthCheck = true;
@@ -23,19 +24,19 @@ namespace Simple.Kafka.Rpc.IntegrationTests
                 .WithRpcEvents(e =>
                 {
                     // Logs for different events from rpc library
-                    e.OnEof = c => env.Output.WriteLine($"Got an eof: {c.TopicPartitionOffset}");
-                    e.OnRpcLog = c => env.Output.WriteLine($"Consumer RpcLog: {c.Message} [{c.Level}]");
-                    e.OnRpcMessage = (id, r) => env.Output.WriteLine($"received respose for: {id}");
+                    e.OnEof = c => env.Output.WriteLine($"[RPC] Got an eof: {c.TopicPartitionOffset}");
+                    e.OnRpcLog = c => env.Output.WriteLine($"[RPC] Consumer RpcLog: {c.Message} [{c.Level}]");
+                    e.OnRpcMessage = (id, r) => env.Output.WriteLine($"[RPC] Consumer received respose for: {id}");
                 })
                 .WithKafkaEvents(e =>
                 {
                     e.OnErrorRestart = e => e.IsFatal; // If fatal - recreate consumer
-                    e.OnAssigned = (c, e) => env.Output.WriteLine($"Assigned: {string.Join(",", e)}");
-                    e.OnRevoked = (c, r) => env.Output.WriteLine($"Revoked: {string.Join(",", r)}");
-                    e.OnCommitted = (c, t) => env.Output.WriteLine($"Committed: {string.Join(",", t.Offsets)}");
-                    e.OnStatistics = (c, s) => env.Output.WriteLine($"Consumer statistics: {s}");
-                    e.OnError = (c, e) => env.Output.WriteLine($"Consumer error occurred: {e.Reason}");
-                    e.OnLog = (c, e) => env.Output.WriteLine($"Consumer log: {e.Message} [{e.Level}]");
+                    e.OnAssigned = (c, e) => env.Output.WriteLine($"[RPC] Assigned: {string.Join(",", e)}");
+                    e.OnRevoked = (c, r) => env.Output.WriteLine($"[RPC] Revoked: {string.Join(",", r)}");
+                    e.OnCommitted = (c, t) => env.Output.WriteLine($"[RPC] Committed: {string.Join(",", t.Offsets)}");
+                    e.OnStatistics = (c, s) => env.Output.WriteLine($"[RPC] Consumer statistics: {s}");
+                    e.OnError = (c, e) => env.Output.WriteLine($"[RPC] Consumer error occurred: {e.Reason}");
+                    e.OnLog = (c, e) => env.Output.WriteLine($"[RPC] Consumer log: {e.Message} [{e.Level}]");
                 })
                 .Rpc
                 .Producer
@@ -43,14 +44,14 @@ namespace Simple.Kafka.Rpc.IntegrationTests
                 .WithRpcEvents(e =>
                 {
                     // Logs for different events from rpc library
-                    e.OnRpcLog = c => env.Output.WriteLine($"Producer RpcLog: {c.Message} [{c.Level}]");
+                    e.OnRpcLog = c => env.Output.WriteLine($"[RPC] Producer RpcLog: {c.Message} [{c.Level}]");
                 })
                 .WithKafkaEvents(e =>
                 {
                     e.OnErrorRestart = e => e.IsFatal; // If fatal - recreate consumer
-                    e.OnError = (c, e) => env.Output.WriteLine($"Producer error occurred: {e}");
-                    e.OnStatistics = (c, s) => env.Output.WriteLine($"Producer statistics: {s}");
-                    e.OnLog = (c, e) => env.Output.WriteLine($"Producer log: {e.Message} [{e.Level}]");
+                    e.OnError = (c, e) => env.Output.WriteLine($"[RPC] Producer error occurred: {e}");
+                    e.OnStatistics = (c, s) => env.Output.WriteLine($"[RPC] Producer statistics: {s}");
+                    e.OnLog = (c, e) => env.Output.WriteLine($"[RPC] Producer log: {e.Message} [{e.Level}]");
                 })
                 .Rpc;
 

@@ -57,6 +57,7 @@ namespace Simple.Kafka.Rpc
                 } : oldStatistics;
             }).WithConfig(c =>
             {
+                if (_config.RequestTimeout.HasValue && _config.RequestTimeout.Value != default) c.MessageTimeoutMs = (int)_config.RequestTimeout.Value.TotalMilliseconds;
                 if (_config.EnableBrokerAvailabilityHealthCheck && !c.StatisticsIntervalMs.HasValue) c.StatisticsIntervalMs = (int)_config.ProducerRecreationPause.TotalMilliseconds;
             });
 
