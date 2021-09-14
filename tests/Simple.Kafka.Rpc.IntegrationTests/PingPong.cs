@@ -46,6 +46,7 @@ namespace Simple.Kafka.Rpc.IntegrationTests
                 BootstrapServers = "localhost:9092",
                 GroupId = Guid.NewGuid().ToString(),
                 EnableAutoCommit = false,
+                EnablePartitionEof = true,
                 AutoOffsetReset = AutoOffsetReset.Latest
             };
 
@@ -54,11 +55,12 @@ namespace Simple.Kafka.Rpc.IntegrationTests
             _env = env;
             _consumer = new ConsumerBuilder<byte[], byte[]>(consumerConfig).Build();
 
+            _consumer.Subscribe(Ping.Topic);
+
             _listener = Task.Factory.StartNew(() =>
             {
                 try
                 {
-                    _consumer.Subscribe(Ping.Topic);
                     while (!_stop.Token.IsCancellationRequested)
                     {
                         try
