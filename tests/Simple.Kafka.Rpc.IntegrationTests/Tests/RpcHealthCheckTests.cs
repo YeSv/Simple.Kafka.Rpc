@@ -46,7 +46,7 @@ namespace Simple.Kafka.Rpc.IntegrationTests.Tests
                 var health = await rpc.WaitForHealth(h => !h.IsHealthy, timeout.Token);
 
                 health.IsHealthy.Should().BeFalse();
-                health.Reason.Should().Be(Health.ConsumerAssignedToZeroPartitions.Reason);
+                health.Reason.Should().Contain(Health.ConsumerAssignedToZeroPartitions.Reason);
             }
             finally
             {

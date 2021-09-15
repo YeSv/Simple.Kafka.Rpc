@@ -109,12 +109,12 @@ namespace Simple.Kafka.Rpc.IntegrationTests
                 }
                 catch (ProduceException<byte[], byte[]> ex)
                 {
-                    _output.WriteLine($"Produce exception occurred. Exception: {ex}");
+                    _output.WriteLine($"[Waiter] Produce exception occurred. Exception: {ex}");
                     return false;
                 }
                 catch (Exception ex)
                 {
-                    _output.WriteLine($"Unhandled exception occurred. Exception: {ex}");
+                    _output.WriteLine($"[Waiter] Unhandled exception occurred. Exception: {ex}");
                     return false;
                 }
             }

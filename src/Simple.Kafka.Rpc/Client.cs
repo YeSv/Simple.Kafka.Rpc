@@ -68,9 +68,9 @@ namespace Simple.Kafka.Rpc
             (_producer.Health.IsHealthy, _consumer.Health.IsHealthy) switch
             {
                 (true, true) => null,
-                (true, false) => _consumer.Health.Reason,
-                (false, true) => _producer.Health.Reason,
-                _ => $"{_producer.Health.Reason}{Environment.NewLine}{_consumer.Health.Reason}"
+                (true, false) => $"[Producer] Healthy{Environment.NewLine}[Consumer]: {_consumer.Health.Reason}",
+                (false, true) => $"[Producer]: {_producer.Health.Reason}{Environment.NewLine}[Consumer]: Healthy",
+                _ => $"[Producer]: {_producer.Health.Reason}{Environment.NewLine}[Consumer]: {_consumer.Health.Reason}"
             });
 
         public Task<UniResult<ConsumeResult<byte[], byte[]>, RpcException>> Send(byte[] key, byte[] value, string topic, CancellationToken token = default) =>
@@ -126,6 +126,13 @@ namespace Simple.Kafka.Rpc
             _producer?.Dispose();
             _consumer?.Dispose();
             _responses?.Dispose();
+        }
+
+        public static RpcClient Create(Action<RpcBuilder> @override)
+        {
+            var builder = new RpcBuilder();
+            @override(builder);
+            return builder.Build();
         }
     }
 }
