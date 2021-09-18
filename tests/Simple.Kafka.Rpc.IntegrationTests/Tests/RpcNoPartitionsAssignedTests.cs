@@ -25,13 +25,13 @@ namespace Simple.Kafka.Rpc.IntegrationTests.Tests
             using var rpc1 = Rpc.Create(_env, b =>
             {
                 b.Consumer.Kafka.GroupId = groupId;
-                b.Config.Topics = new[] { groupId };
+                b.Config.Topics = new[] { Pong.Topic };
                 b.Config.UnhealthyIfNoPartitionsAssigned = false;
             });
             using var rpc2 = Rpc.Create(_env, b =>
             {
                 b.Consumer.Kafka.GroupId = groupId;
-                b.Config.Topics = new[] { groupId };
+                b.Config.Topics = new[] { Pong.Topic };
                 b.Config.UnhealthyIfNoPartitionsAssigned = false;
             });
             using var cts = new CancellationTokenSource(_timeout);
@@ -55,14 +55,14 @@ namespace Simple.Kafka.Rpc.IntegrationTests.Tests
             using var rpc1 = Rpc.Create(_env, b =>
             {
                 b.Consumer.Kafka.GroupId = groupId;
-                b.Config.Topics = new[] { groupId };
+                b.Config.Topics = new[] { Pong.Topic };
                 b.Config.UnhealthyIfNoPartitionsAssigned = true;
             });
 
             using var rpc2 = Rpc.Create(_env, b =>
             {
                 b.Consumer.Kafka.GroupId = groupId;
-                b.Config.Topics = new[] { groupId };
+                b.Config.Topics = new[] { Pong.Topic };
                 b.Config.UnhealthyIfNoPartitionsAssigned = true;
             }); 
             using var cts = new CancellationTokenSource(_timeout);
