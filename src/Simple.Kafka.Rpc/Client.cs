@@ -91,7 +91,7 @@ namespace Simple.Kafka.Rpc
                 var subscriptionTask = _responses.Subscribe(subscription);
 
                 using var producerRent = _producer.Rent();
-                var produceResult = await producerRent.Value!.ProduceAsync(topic, message).ConfigureAwait(false);
+                var produceResult = await producerRent.Value!.ProduceAsync(topic, message, timeout?.Token ?? token).ConfigureAwait(false);
 
                 using var taskBufferRent = _taskBuffers.Get();
                 taskBufferRent.Value.Append(subscriptionTask);
@@ -112,6 +112,7 @@ namespace Simple.Kafka.Rpc
                 return UniResult.Error<ConsumeResult<byte[], byte[]>, RpcException>(ex switch 
                 {
                     ProduceException<byte[], byte[]> e => RpcException.Kafka(subscription, ex),
+                    OperationCanceledException e => RpcException.Timeout(subscription),
                     _ => RpcException.Unhandled(subscription, ex)
                 });
             }
