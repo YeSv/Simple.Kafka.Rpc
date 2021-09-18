@@ -20,5 +20,7 @@ jobs:
         run: dotnet restore
       - name: Build
         run: dotnet build --configuration Release --no-restore
+      - name: Docker pull
+        run: docker pull johnnypark/kafka-zookeeper:latest
       - name: Test
         run: dotnet test --no-restore --verbosity normal
