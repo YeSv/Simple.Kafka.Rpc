@@ -91,7 +91,7 @@ namespace Simple.Kafka.Rpc
                 var subscriptionTask = _responses.Subscribe(subscription);
 
                 using var producerRent = _producer.Rent();
-                var produceResult = await producerRent.Value!.ProduceAsync(topic, message, timeout?.Token ?? token).ConfigureAwait(false);
+                var produceResult = await producerRent.Value!.ProduceAsync(topic, message).ConfigureAwait(false);
 
                 using var taskBufferRent = _taskBuffers.Get();
                 taskBufferRent.Value.Append(subscriptionTask);

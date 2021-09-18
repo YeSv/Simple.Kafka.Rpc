@@ -13,6 +13,7 @@ namespace Simple.Kafka.Rpc.IntegrationTests.Tests
     {
         readonly Environment _env;
         readonly ITestOutputHelper _output;
+        readonly TimeSpan _timeout = TimeSpan.FromSeconds(30);
 
         public RpcSendTests(Environment env, ITestOutputHelper output)
         {
@@ -109,9 +110,11 @@ namespace Simple.Kafka.Rpc.IntegrationTests.Tests
 
 
                 await _env.Kafka.Run(Environment.EmptyEnvVariables);
+                using var timeout = new CancellationTokenSource(_timeout);
 
                 using var server = new PingServer(_env);
-                await Task.Delay(5_000); // Wait some time to give ping server a chance to consume
+                var health = await rpc.WaitForHealth(h => h.IsHealthy, timeout.Token);
+                health.IsHealthy.Should().BeTrue();
 
                 var okResult = await rpc.Ping();
                 okResult.IsOk.Should().BeTrue();
