@@ -23,7 +23,6 @@ namespace Simple.Kafka.Rpc.IntegrationTests.Tests
             await _env.Kafka.Stop();
             try
             {
-
                 using var server = new PingServer(_env);
                 using var rpc = Rpc.Create(_env, c => c.Config.RequestTimeout = TimeSpan.FromMilliseconds(timeoutMs));
                 using var cts = new CancellationTokenSource(timeoutMs * 2);
