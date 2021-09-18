@@ -39,6 +39,8 @@ namespace Simple.Kafka.Rpc.IntegrationTests.Tests
             using var rpc = Rpc.Create(_env);
             using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(1));
 
+            await Task.Delay(TimeSpan.FromSeconds(1));
+            
             var pongResult = await rpc.Ping(timeout.Token);
 
             pongResult.IsOk.Should().BeFalse();
