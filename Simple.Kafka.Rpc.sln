@@ -19,6 +19,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Simple.Kafka.Rpc.Todo.Clien
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Simple.Kafka.Rpc.IntegrationTests", "tests\Simple.Kafka.Rpc.IntegrationTests\Simple.Kafka.Rpc.IntegrationTests.csproj", "{FACC07CC-E7C9-4C16-B655-FF8669D8396B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Simple.Kafka.Rpc.Readme", "examples\Simple.Kafka.Rpc.Readme\Simple.Kafka.Rpc.Readme.csproj", "{3B2BBCDC-31F0-4119-BF96-FA4F41DB58C1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -45,6 +47,10 @@ Global
 		{FACC07CC-E7C9-4C16-B655-FF8669D8396B}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{FACC07CC-E7C9-4C16-B655-FF8669D8396B}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{FACC07CC-E7C9-4C16-B655-FF8669D8396B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3B2BBCDC-31F0-4119-BF96-FA4F41DB58C1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3B2BBCDC-31F0-4119-BF96-FA4F41DB58C1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3B2BBCDC-31F0-4119-BF96-FA4F41DB58C1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3B2BBCDC-31F0-4119-BF96-FA4F41DB58C1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -55,6 +61,7 @@ Global
 		{1B1DD1A8-E830-422D-B09C-7A1825772968} = {D02089FF-B5AB-4A58-B853-843658F17A17}
 		{5F45FF06-AE94-476E-9464-1778FB243ED9} = {D02089FF-B5AB-4A58-B853-843658F17A17}
 		{FACC07CC-E7C9-4C16-B655-FF8669D8396B} = {AA5CF549-3889-4640-8470-368AEF6D5CAB}
+		{3B2BBCDC-31F0-4119-BF96-FA4F41DB58C1} = {D02089FF-B5AB-4A58-B853-843658F17A17}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {0F802541-5BEA-43B4-95E0-D41BF5624504}
