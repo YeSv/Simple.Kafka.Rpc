@@ -19,7 +19,7 @@ Version mapping between [Simple.Kafka.Rpc](https://www.nuget.org/packages/Simple
 
 # 1. Introduction
 
-`Simple.Kafka.Rpc` allows you to use Kafka not only as commit log but also for `Request/Response` communication type. What does it mean?
+`Simple.Kafka.Rpc` allows you to use Kafka not only as commit log but also for `Request/Response` type of communication between microservices, for example. What does it mean?
 
 Let's write an example of http call to google.com in `C#` which might look like this:
 
