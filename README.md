@@ -19,9 +19,9 @@ Version mapping between [Simple.Kafka.Rpc](https://www.nuget.org/packages/Simple
 
 # 1. Introduction
 
-`Simple.Kafka.Rpc` allows you to use Kafka not only as commit log but also like `Request/Response` model. What does it mean?
+`Simple.Kafka.Rpc` allows you to use Kafka not only as commit log but also for `Request/Response` communication type. What does it mean?
 
-Simple http call implementation in `C#` to a server might look like this:
+Let's write an example of http call to google.com in `C#` which might look like this:
 
 ```csharp
 
@@ -37,10 +37,11 @@ Console.WriteLine($"Content.Length is {content.Length}");
 
 To make this work you need:
 1. Client application that can send requests and receive responses using `HttpClient`
-2. Server application that can parse requests, handle them and return responses
-3. For you `HttpClient` implementation is a blackbox - all you need is a working client and server
+2. Server application that can parse requests, handle them and return responses (in our case - google servers)
 
-Let's check an API that Simple.Kafka.Rpc provides:
+For you `HttpClient` implementation is a blackbox - all you need is a working client and server.
+
+Let's now check an API that Simple.Kafka.Rpc provides:
 
 ``` csharp
 
@@ -67,18 +68,18 @@ We can use `RpcClient` the same way we used `HttpClient` before.
 To make this work you need:
 1. Client application that can send request messages and recieve response messages using `RpcClient`
 2. Server application that can parse requests and consume from Kafka topic and produce responses
-3. For you `RpcClient` implementation is a blackbox - all you need is a working client and server
 
-As you can see there are a lot of similarities. `Simple.Kafka.Rpc`'s workflow can be demonstated using the diagram below:
+For you `RpcClient` implementation is also a blackbox - all you need is a working client and server :)
+
+As you can see there are a lots of similarities. `Simple.Kafka.Rpc`'s workflow can be demonstated using the diagram below:
 
 ![Diagram](./diagrams/diagram.jpg)
 
 `Simple.Kafka.Rpc` creates a consumer instance in background that is subscribed to responses topics provided in configuration and producer instance that produces messages when you call `Send` or `SendAsync`. `Simple.Kafka.Rpc` also checks that Kafka cluster is available, provides a healthcheck and is able to recreate consumer and producer instances transparently if it's possible.
 
-Note that `Server` should be implemented by yourself - you should create a consumer and producer and produce responses to corresponding topics in a manner that you wish to - in batches or one by one using `Confluent.Kafka`'s producer and consumer classes.
+Note that `Server` side should be implemented by yourself - you should create a consumer and producer and produce responses to corresponding topics in a manner that you wish to - in batches or one by one using `Confluent.Kafka`'s producer and consumer classes.
 
-The question may arise - how `RpcClient` knows which response should be mapped to which request, well, `RpcClient` adds a special header to provided `Message<byte[], byte[]>` and you should populate it when you send a response. You can check it in an examples section.
-
+The question may arise - how `RpcClient` knows which response should be mapped to which request, well, `RpcClient` adds a special header to provided `Message<byte[], byte[]>` and you should populate it when you send a response. You can check how to propagate and extract it in an [examples](#3-examples) section.
 
 # 2. Advantages and disadvantages
 
