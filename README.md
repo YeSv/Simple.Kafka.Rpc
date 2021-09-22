@@ -264,10 +264,10 @@ var serverTask = Task.Run(async () =>
         var consumeResult = consumer.Consume(stop.Token);
         if (consumeResult == null || consumeResult.IsPartitionEOF) continue;
 
-        var rpcRequest = consumeResult.Message.GetRpcRequestId(); // This extension method comes with Simple.Kafka.Rpc package (REQUIRED)
-        if (rpcRequest == null) continue; // Not an Simple.Kafka.Rpc request message
+        var rpcRequest = consumeResult.Message.GetRpcRequestId(); // This extension method is available with Simple.Kafka.Rpc package (REQUIRED)
+        if (rpcRequest == null) continue; // Not a Simple.Kafka.Rpc request message
 
-        var rpcRequestIdParseResult = rpcRequest.ParseRpcRequestId(); // This extension method comes with Simple.Kafka.Rpc package (not required to use, here - just for logging)
+        var rpcRequestIdParseResult = rpcRequest.ParseRpcRequestId(); // This extension method is available with Simple.Kafka.Rpc package (not required to use, here - just for logging)
         if (!rpcRequestIdParseResult.IsOk) continue; // Failed to parse
 
         Console.WriteLine($"[Server] Received request with id: {rpcRequestIdParseResult.Ok}");
@@ -276,7 +276,7 @@ var serverTask = Task.Run(async () =>
         {
             Key = Array.Empty<byte>(),
             Value = MessagePackSerializer.Serialize(Pong.New)
-        }.WithRpcRequestId(rpcRequest)); // This extension method comes with Simple.Kafka.Rpc package (required to call so client can match request to response)
+        }.WithRpcRequestId(rpcRequest)); // This extension method is available in Simple.Kafka.Rpc package (required to call so client can match request to response)
 
         Console.WriteLine($"[Server] Successfully added response to producer's queue. Id: {rpcRequestIdParseResult.Ok}");
     }
@@ -284,7 +284,7 @@ var serverTask = Task.Run(async () =>
 
 ```
 
-The code above create producer and consumer and starts consuming data from topic in the separate `Task`. Once we get something we should call `GetRpcRequestId` extension on a `Message<byte[], byte[]>` as we need to propagate it in the response `Message<byte[], byte[]>` so client can match request with a response :) Other than that - the code just consumes message and produces a response with new `Pong` message serialized using message pack (anything else can be used).
+The code above creates producer and consumer instances and starts consuming data from topic in the separate `Task`. Once we get something we should call `GetRpcRequestId` extension on a `Message<byte[], byte[]>` as we need to propagate it in the response `Message<byte[], byte[]>` so client can match request with a response :) Other than that - the code just consumes message and produces a response with new `Pong` message serialized using message pack (anything else can be used).
 
 Let's add another chunk for stopping the program gracefully:
 
