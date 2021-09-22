@@ -111,7 +111,7 @@ There is also an example of a TODO list client written using aspnet core (API) w
 
 ___
 
-In this section we are going to implement a service-to-service communication  implementation which is used in [integration tests](https://github.com/YeSv/Simple.Kafka.Rpc/blob/main/tests/Simple.Kafka.Rpc.IntegrationTests/PingPong.cs).
+In this section we are going to implement a primitive service-to-service communication with only one request and response contract. Client can issue a `Ping` requests and server returns `Pong` responses :)
 
 Required steps:
 1. Define request and response models
@@ -120,7 +120,7 @@ Required steps:
 4. Write a server
 5. Running kafka instance
 
-Before we start, jfyi you can always check the source code for this section in [Examples](https://github.com/YeSv/Simple.Kafka.Rpc/blob/main/examples/Simple.Kafka.Rpc.Readme).
+Before we start, jfyi you can always check the source code for this section [here](https://github.com/YeSv/Simple.Kafka.Rpc/blob/main/examples/Simple.Kafka.Rpc.Readme).
 
 
 First of all, we should define contracts (models), two structs with only one field of type `DateTime` should be enough:
