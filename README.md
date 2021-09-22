@@ -105,7 +105,7 @@ ___
 
 *Note:*
 
-There is also an example of a TODO list client written using aspnet core (API) which uses `Simple.Kafka.Rpc`, sources:
+There is also an example of a todo list application (API) written using aspnet core which uses `Simple.Kafka.Rpc` client under the hood, sources:
 1. [Todo list api](https://github.com/YeSv/Simple.Kafka.Rpc/blob/main/examples/Simple.Kafka.Rpc.Todo.Client)
 2. [Backend](https://github.com/YeSv/Simple.Kafka.Rpc/blob/main/examples/Simple.Kafka.Rpc.Todo.Server)
 
