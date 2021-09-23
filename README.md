@@ -12,10 +12,10 @@ Version mapping between [Simple.Kafka.Rpc](https://www.nuget.org/packages/Simple
 1. [Introduction](#1-introduction)
 2. [Advantages and disadvantages](#2-advantages-and-disadvantages)
 3. [Examples](#3-examples)
-4. [Healthcheck](#4-healthcheck) [TODO]
-5. [API](#5-api) [TODO]
-6. [Configuration](#6-configuration) [TODO]
-
+4. [Healthcheck](#4-healthcheck)
+5. [Builder](#5-builder-api)
+6. [RpcClient](#6-rpcclient-api) [TODO]
+7. [Configuration](#6-configuration) [TODO]
 
 # 1. Introduction
 
@@ -330,3 +330,175 @@ Received pong response
 ```
 
 Feel free to modify it as you want, but what you have achieved is that two `microservice`-like tasks can talk to each other via Kafka like you probably do via HTTP. Awesome :D
+
+# 4. Healthcheck
+`RpcClient` while maintaining consumer and producer instances checks for status of kafka cluster, assigned partitions and errors during processing. Once something goes wrong - like `IsFatal` error occurres, current consumer can't continue to consume messages, `RpcClient` will try to initialize a new one in background, in a meantime healthcheck should be unhealthy.
+
+As for now client might be unhealthy only in such scenarios:
+1. Producer or consumer received `IsFatal` error 
+2. Client constantly fails to recreate producer or consumer instance
+3. No Kafka brokers available (but only when configuration property `EnableBrokerAvailabilityHealthCheck` is `true`)
+4. Consumer is assigned to 0 partitions (only when configuration property `UnhealthyIfNoPartitionsAssigned` is `true`)
+5. Consumer can't continue to process messages because unhandled exception occurred in consumer thread (only when `StopConsumerOnUnhandledException` is `true`)
+6. During `RpcClient.Create()` call or `RpcClientBuilder.Build()` call if warmup has failed. Warmup is the process when internally client tries to consume at least one message with `IsPartitionEOF` during some period. Client will throw an exception if it can't. This is only enabled if `UnhealthyIfNoPartitionsAssigned` is `true`
+
+_Important_: Scenario [5] is unrecoverable! (healthcheck will stay unhealthy as `RpcClient` is broken and unusable) For example this might happen when your custom event handler `OnRpcMessage` throws an exception, or `OOM` occures.
+
+To access healthcheck information use `Health` property :)
+
+``` csharp
+
+
+using var rpc_health = RpcClient.Create(b => { });
+
+var health = rpc_health.Health;
+
+Console.WriteLine(health.IsHealthy);
+Console.WriteLine(health.Reason);
+
+```
+
+Note that `Reason` is `null` if `IsHealthy` is `true` - once everything is okay we don't need the reason :)
+
+# 5. Builder API
+
+To create an instance of `RpcClient` one must use `RpcClient.Create()` method or `RpcBuilder` class. Actually `RpcClient.Create` just creates a builder instance for you and you can access a builder in an `Action<RpcBuilder>` required for `Create` method. :)
+
+`WithConfig` method allows you to set configuration properties of an `RpcClient` like `Topics` to consume from or set global `RequestTimeout` and more stuff described in configuration section later:
+
+```csharp
+
+var builder = new RpcBuilder();
+builder.WithConfig(c =>
+{
+    c.Topics = new[] { Ping.Topic };
+    c.RequestTimeout = TimeSpan.FromSeconds(1);
+});
+
+```
+
+`RpcBuilder` also exposes two properties `Consumer` and `Producer` - that's where you can override consumer's or producer's configuration or subscribe to `Rpc` events or `Kafka` events.
+
+`Producer` property:
+
+1. Allows you to configure `ProducerConfig` from `Confluent.Kafka` using `WithConfig()` method or `Kafka` property:
+
+``` csharp
+
+// Setting `Acks` property for producer and compression
+builder.Producer.Kafka.Acks = Acks.All;
+builder.Producer.Kafka.CompressionType = CompressionType.Lz4;
+
+// OR
+
+builder.Producer.WithConfig(c =>
+{
+    c.Acks = Acks.All;
+    c.CompressionType = CompressionType.Lz4;
+});
+
+```
+
+2. Allows you to subscribe to producer events like `OnStatistics` or `OnError` (others also available) the same way you do for raw `Producer`. This is done using `WithKafkaConfig()` method or `KafkaHanlder` property:
+
+``` csharp
+
+builder.Producer.KafkaHandler.OnError = (p, e) => Console.WriteLine($"Error occurred: {e.Reason}");
+builder.Producer.KafkaHandler.OnStatistics = (p, statistics) => Console.WriteLine($"Producer statistics: {statistics}");
+builder.Producer.KafkaHandler.OnErrorRestart = e => e.IsFatal;
+
+// OR
+
+builder.Producer.WithKafkaEvents(h =>
+{
+    h.OnError = (p, e) => Console.WriteLine($"Error occurred: {e.Reason}");
+    h.OnStatistics = (p, statistics) => Console.WriteLine($"Producer statistics: {statistics}");
+    h.OnErrorRestart = e => e.IsFatal;
+});
+
+```
+
+Notice `OnErrorRestart`. This is very important event handler and it's a `Func<Error, bool>` which determines if producer instance should be recreated. In this example we used `IsFatal` property which is done by default if you won't specify anything for `OnErrorRestart`. You can also return `false` everytime so producer instance won't be recreated at all, but it's better not to specify anything for `OnErrorRestart` (leave it as `null`). But you have an option to create a more sophisticated trigger for recreation if needed.
+
+
+3. Allows you to subscribe to `Rpc` events that `RpcClient` exposes using `WithRpcEvents()` method or `RpcHandler`:
+
+``` csharp
+
+builder.Producer.RpcHandler.OnRpcLog = m => Console.WriteLine($"[{m.Level}] {m.Message}");
+
+// OR
+
+builder.Producer.WithRpcEvents(h =>
+{
+    h.OnRpcLog = m => Console.WriteLine($"[{m.Level}] {m.Message}");
+});
+
+```
+
+`OnRpcLog` allows you to subscribe to internal `Rpc` logs so you will be aware if for example `Kafka` is unreachable or producer instance is being recreated, etc.
+
+That's all for `Producer` property of `RpcBuilder`. 
+
+`RpcBuilder` also exposes `Consumer` property with the same methods but `Consumer` section has more `Rpc` or `Kafka` events to subscribe to.
+
+In conclusion you can create your `RpcClient` using two approaches:
+
+``` csharp
+
+using var client = RpcClient.Create(builder =>
+{
+    builder.Config.RequestTimeout = TimeSpan.FromSeconds(1);
+
+    builder.Consumer.Kafka.BootstrapServers = "localhost:9092";
+
+    builder.Producer.Kafka.Acks = Acks.All;
+    builder.Producer.Kafka.CompressionType = CompressionType.Lz4;
+    builder.Producer.Kafka.BootstrapServers = "localhost:9092";
+
+    builder.Producer.KafkaHandler.OnError = (p, e) => Console.WriteLine($"Error occurred: {e.Reason}");
+    builder.Producer.KafkaHandler.OnStatistics = (p, statistics) => Console.WriteLine($"Producer statistics: {statistics}");
+    builder.Producer.KafkaHandler.OnErrorRestart = e => e.IsFatal;
+
+    builder.Consumer.KafkaHandler.OnError = (p, e) => Console.WriteLine($"Error occurred: {e.Reason}");
+    builder.Consumer.KafkaHandler.OnStatistics = (p, statistics) => Console.WriteLine($"Producer statistics: {statistics}");
+    builder.Consumer.KafkaHandler.OnErrorRestart = e => e.IsFatal;
+});
+
+// OR
+
+using var client = new RpcBuilder()
+    .WithConfig(c => c.RequestTimeout = TimeSpan.FromSeconds(1))
+    .Producer
+    .WithConfig(c =>
+    {
+        c.Acks = Acks.All;
+        c.BootstrapServers = "localhost:9092";
+        c.CompressionType = CompressionType.Lz4;
+    })
+    .WithKafkaEvents(h =>
+    {
+        h.OnError = (p, e) => Console.WriteLine($"Error occurred: {e.Reason}");
+        h.OnStatistics = (p, statistics) => Console.WriteLine($"Producer statistics: {statistics}");
+        h.OnErrorRestart = e => e.IsFatal;
+    })
+    .Rpc
+    .Consumer
+    .WithConfig(c =>
+    {
+        c.BootstrapServers = "localhost:9092";
+    })
+    .WithKafkaEvents(h =>
+    {
+        h.OnError = (p, e) => Console.WriteLine($"Error occurred: {e.Reason}");
+        h.OnStatistics = (p, statistics) => Console.WriteLine($"Producer statistics: {statistics}");
+        h.OnErrorRestart = e => e.IsFatal;
+    })
+    .Rpc
+    .Build();
+
+```
+
+That's the matter of taste. One more thing though, once `.Build()` is called you can't use builder anymore as it's used internally to create or recreate consumer/producer instances. If you need another instance of `RpcClient` in a process, use new `RpcBuilder`.
+
+
