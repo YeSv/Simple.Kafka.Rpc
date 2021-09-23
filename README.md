@@ -15,7 +15,7 @@ Version mapping between [Simple.Kafka.Rpc](https://www.nuget.org/packages/Simple
 4. [Healthcheck](#4-healthcheck)
 5. [Builder](#5-builder-api)
 6. [RpcClient](#6-rpcclient-api)
-7. [Configuration](#6-configuration)
+7. [Configuration](#7-configuration)
 
 # 1. Introduction
 
