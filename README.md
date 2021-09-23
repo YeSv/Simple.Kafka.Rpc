@@ -19,9 +19,9 @@ Version mapping between [Simple.Kafka.Rpc](https://www.nuget.org/packages/Simple
 
 # 1. Introduction
 
-`Simple.Kafka.Rpc` allows you to use Kafka not only as commit log but also like `Request/Response` model. What does it mean?
+`Simple.Kafka.Rpc` allows you to use Kafka not only as commit log but also for `Request/Response` type of communication between microservices, for example. What does it mean?
 
-Simple http call implementation in `C#` to a server might look like this:
+Let's write an example of http call to google.com in `C#` which might look like this:
 
 ```csharp
 
@@ -37,10 +37,11 @@ Console.WriteLine($"Content.Length is {content.Length}");
 
 To make this work you need:
 1. Client application that can send requests and receive responses using `HttpClient`
-2. Server application that can parse requests, handle them and return responses
-3. For you `HttpClient` implementation is a blackbox - all you need is a working client and server
+2. Server application that can parse requests, handle them and return responses (in our case - google servers)
 
-Let's check an API that Simple.Kafka.Rpc provides:
+For you `HttpClient` implementation is a blackbox - all you need is a working client and server.
+
+Let's now check an API that Simple.Kafka.Rpc provides:
 
 ``` csharp
 
@@ -67,18 +68,18 @@ We can use `RpcClient` the same way we used `HttpClient` before.
 To make this work you need:
 1. Client application that can send request messages and recieve response messages using `RpcClient`
 2. Server application that can parse requests and consume from Kafka topic and produce responses
-3. For you `RpcClient` implementation is a blackbox - all you need is a working client and server
 
-As you can see there are a lot of similarities. `Simple.Kafka.Rpc`'s workflow can be demonstated using the diagram below:
+For you `RpcClient` implementation is also a blackbox - all you need is a working client and server :)
+
+As you can see there are a lots of similarities. `Simple.Kafka.Rpc`'s workflow can be demonstated using the diagram below:
 
 ![Diagram](./diagrams/diagram.jpg)
 
 `Simple.Kafka.Rpc` creates a consumer instance in background that is subscribed to responses topics provided in configuration and producer instance that produces messages when you call `Send` or `SendAsync`. `Simple.Kafka.Rpc` also checks that Kafka cluster is available, provides a healthcheck and is able to recreate consumer and producer instances transparently if it's possible.
 
-Note that `Server` should be implemented by yourself - you should create a consumer and producer and produce responses to corresponding topics in a manner that you wish to - in batches or one by one using `Confluent.Kafka`'s producer and consumer classes.
+Note that `Server` side should be implemented by yourself - you should create a consumer and producer and produce responses to corresponding topics in a manner that you wish to - in batches or one by one using `Confluent.Kafka`'s producer and consumer classes.
 
-The question may arise - how `RpcClient` knows which response should be mapped to which request, well, `RpcClient` adds a special header to provided `Message<byte[], byte[]>` and you should populate it when you send a response. You can check it in an examples section.
-
+The question may arise - how `RpcClient` knows which response should be mapped to which request, well, `RpcClient` adds a special header to provided `Message<byte[], byte[]>` and you should populate it when you send a response. You can check how to propagate and extract it in an [examples](#3-examples) section.
 
 # 2. Advantages and disadvantages
 
@@ -104,13 +105,13 @@ ___
 
 *Note:*
 
-There is also an example of a TODO list client written using aspnet core (API) which uses `Simple.Kafka.Rpc`, sources:
+There is also an example of a todo list application (API) written using aspnet core which uses `Simple.Kafka.Rpc` client under the hood, sources:
 1. [Todo list api](https://github.com/YeSv/Simple.Kafka.Rpc/blob/main/examples/Simple.Kafka.Rpc.Todo.Client)
 2. [Backend](https://github.com/YeSv/Simple.Kafka.Rpc/blob/main/examples/Simple.Kafka.Rpc.Todo.Server)
 
 ___
 
-In this section we are going to implement a service-to-service communication  implementation which is used in [integration tests](https://github.com/YeSv/Simple.Kafka.Rpc/blob/main/tests/Simple.Kafka.Rpc.IntegrationTests/PingPong.cs).
+In this section we are going to implement a primitive service-to-service communication with only one request and response contract. Client can issue a `Ping` requests and server returns `Pong` responses :)
 
 Required steps:
 1. Define request and response models
@@ -119,7 +120,7 @@ Required steps:
 4. Write a server
 5. Running kafka instance
 
-Before we start, jfyi you can always check the source code for this section in [Examples](https://github.com/YeSv/Simple.Kafka.Rpc/blob/main/examples/Simple.Kafka.Rpc.Readme).
+Before we start, jfyi you can always check the source code for this section [here](https://github.com/YeSv/Simple.Kafka.Rpc/blob/main/examples/Simple.Kafka.Rpc.Readme).
 
 
 First of all, we should define contracts (models), two structs with only one field of type `DateTime` should be enough:
@@ -263,10 +264,10 @@ var serverTask = Task.Run(async () =>
         var consumeResult = consumer.Consume(stop.Token);
         if (consumeResult == null || consumeResult.IsPartitionEOF) continue;
 
-        var rpcRequest = consumeResult.Message.GetRpcRequestId(); // This extension method comes with Simple.Kafka.Rpc package (REQUIRED)
-        if (rpcRequest == null) continue; // Not an Simple.Kafka.Rpc request message
+        var rpcRequest = consumeResult.Message.GetRpcRequestId(); // This extension method is available with Simple.Kafka.Rpc package (REQUIRED)
+        if (rpcRequest == null) continue; // Not a Simple.Kafka.Rpc request message
 
-        var rpcRequestIdParseResult = rpcRequest.ParseRpcRequestId(); // This extension method comes with Simple.Kafka.Rpc package (not required to use, here - just for logging)
+        var rpcRequestIdParseResult = rpcRequest.ParseRpcRequestId(); // This extension method is available with Simple.Kafka.Rpc package (not required to use, here - just for logging)
         if (!rpcRequestIdParseResult.IsOk) continue; // Failed to parse
 
         Console.WriteLine($"[Server] Received request with id: {rpcRequestIdParseResult.Ok}");
@@ -275,7 +276,7 @@ var serverTask = Task.Run(async () =>
         {
             Key = Array.Empty<byte>(),
             Value = MessagePackSerializer.Serialize(Pong.New)
-        }.WithRpcRequestId(rpcRequest)); // This extension method comes with Simple.Kafka.Rpc package (required to call so client can match request to response)
+        }.WithRpcRequestId(rpcRequest)); // This extension method is available in Simple.Kafka.Rpc package (required to call so client can match request to response)
 
         Console.WriteLine($"[Server] Successfully added response to producer's queue. Id: {rpcRequestIdParseResult.Ok}");
     }
@@ -283,7 +284,7 @@ var serverTask = Task.Run(async () =>
 
 ```
 
-The code above create producer and consumer and starts consuming data from topic in the separate `Task`. Once we get something we should call `GetRpcRequestId` extension on a `Message<byte[], byte[]>` as we need to propagate it in the response `Message<byte[], byte[]>` so client can match request with a response :) Other than that - the code just consumes message and produces a response with new `Pong` message serialized using message pack (anything else can be used).
+The code above creates producer and consumer instances and starts consuming data from topic in the separate `Task`. Once we get something we should call `GetRpcRequestId` extension on a `Message<byte[], byte[]>` as we need to propagate it in the response `Message<byte[], byte[]>` so client can match request with a response :) Other than that - the code just consumes message and produces a response with new `Pong` message serialized using message pack (anything else can be used).
 
 Let's add another chunk for stopping the program gracefully:
 
