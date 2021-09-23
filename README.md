@@ -14,8 +14,8 @@ Version mapping between [Simple.Kafka.Rpc](https://www.nuget.org/packages/Simple
 3. [Examples](#3-examples)
 4. [Healthcheck](#4-healthcheck)
 5. [Builder](#5-builder-api)
-6. [RpcClient](#6-rpcclient-api) [TODO]
-7. [Configuration](#6-configuration) [TODO]
+6. [RpcClient](#6-rpcclient-api)
+7. [Configuration](#6-configuration)
 
 # 1. Introduction
 
@@ -346,6 +346,8 @@ _Important_: Scenario [5] is unrecoverable! (healthcheck will stay unhealthy as 
 
 To access healthcheck information use `Health` property :)
 
+List of available health messages is avaliable [here](https://github.com/YeSv/Simple.Kafka.Rpc/blob/main/src/Simple.Kafka.Rpc/Health.cs).
+
 ``` csharp
 
 
@@ -501,4 +503,101 @@ using var client = new RpcBuilder()
 
 That's the matter of taste. One more thing though, once `.Build()` is called you can't use builder anymore as it's used internally to create or recreate consumer/producer instances. If you need another instance of `RpcClient` in a process, use new `RpcBuilder`.
 
+# 6. RpcClient API
 
+`RpcClient` implements `IKafkaRpc` interface that looks like this:
+
+```csharp
+
+public interface IKafkaRpc : IDisposable
+{
+        HealthResult Health { get; }
+
+        Task<UniResult<ConsumeResult<byte[], byte[]>, RpcException>> Send(byte[] key, byte[] value, string topic, CancellationToken token = default);
+
+        Task<UniResult<ConsumeResult<byte[], byte[]>, RpcException>> Send(Message<byte[], byte[]> message, string topic, CancellationToken token = default);
+}
+
+```
+
+As you can see it exposes `Health` property described previously and two `Send` methods that differ only by `Message<byte[], byte[]>` parameter, message-less `Send` creates a message under the hood using `byte[]` key and `byte[]` value.
+
+You can also specify a `CancellationToken` to set a timeout for operation this token ONLY affects internal waiter for a response and does not affect producer that produces messages to Kafka internally, to specify timeout for producer use `Confluent.Kafka`'s configuration property while creating `RpcClient` called `MessageTimeoutMs`.
+
+So if you use `CancellationTokenSource` with `TimeSpan` this time should be greater than `MessageTimeoutMs` as some time is required also to receive a response.
+
+`Send` methods return `UniResult` of consumed kafka message or rpc error. Consider `UniResult` as `Either` of things -> either message is returned or error and `IKafkaRpc` client guarantees that exception is never thrown. To read about `UniResult` please use this [LINK](https://github.com/YeSv/Simple.Dotnet.Utilities#1-results).
+
+`RpcException` is an error that returned if something gone wrong during transmission or response retrieval:
+
+```csharp
+
+    public enum ErrorType : byte
+    {
+        Kafka,
+        Timeout,
+        UnhandledException
+    }
+
+    public sealed class RpcException : Exception
+    {
+        public ErrorType Type { get; }
+        public Guid RequestId { get; }
+        
+        // Constructors
+    }
+
+```
+
+`RpcException` provides `Guid` RequestId property with an id that `RpcClient` sent to kafka topic so you can check logs on your server side or check Kafka topic if request and respose was sent to topic and determine where the issue occurred.
+
+`RpcException` also provides `ErrorType` Type property which can be `Kafka`|`Timeout`|`UnhandledException`:
+
+1. Kafka - something went wrong on Kafka side, use `InnerException` to get info about an error (it should be of type `ProduceException<byte[], byte[]>`)
+2. Timeout - if token provided as a parameter was cancelled or `RequestTimeout` time (configuration property) has passed - basically in case of timeout
+3. UnhandledException - something went horibly wrong, use `InnerException` to check what was wrong
+
+
+`Simple.Kafka.Rpc` also provides useful two extensions on top of `IKafkaRpc`:
+
+```csharp
+
+    // More idiomatic dotnet implementation
+    public static class KafkaRpcExtensions
+    {
+        public static Task<ConsumeResult<byte[], byte[]>> SendAsync(this IKafkaRpc rpc, byte[] key, byte[] value, string topic, CancellationToken token = default) =>
+            SendAsync(rpc, new Message<byte[], byte[]>
+            {
+                Key = key,
+                Value = value
+            }, topic, token);
+
+        public static async Task<ConsumeResult<byte[], byte[]>> SendAsync(this IKafkaRpc rpc, Message<byte[], byte[]> message, string topic, CancellationToken token = default)
+        {
+            var sendResult = await rpc.Send(message, topic, token);
+            return sendResult.IsOk switch
+            {
+                true => sendResult.Ok!,
+                false => throw sendResult.Error!
+            };
+        }
+    }
+
+```
+
+Two `SendAsync` methods are more idiomatic in the world of .NET. They return only response but also throw `RpcException` if such occurred. Also they follow `Async` naming convention.
+
+# 7. Configuration
+
+`Simple.Kafka.Rpc` provides multiple configuration options, which you can specify using `RpcBuilder`'s `Config` property or using `WithConfig()` method. See: [Builder](#5-builder-api).
+
+Configuration options:
+
+1. `Topics` (string[]) - topics to consume from. Those are responses topics, required for internal consumer. Note that producer topics are provided via `Send` method of `RpcClient`.
+2. `RequestTimeout` (TimeSpan?) - global request timeout for `Send` operation. If specified - overrides producer's `MessageTimeoutMs` configuration property if it is `null` (so you can specify it yourself). In case if you provided `MessageTimeoutMs` yourself make sure that `MessageTimeoutMs` is less than `RequestTimeout`. If `RequestTimeout` is not specified - the default value of 10 seconds is used
+3. `ConsumerWarmupDuration` (TimeSpan) - once `RpcClient` is created it initiates a warmup for consumer to check if there are topics and Kafka cluster is available by listening to the end of the topic. This setting allows you to specify the duration of such warmup. Note that warmup won't be triggerred in case if `UnhealthyIfNoPartitionsAssigned` is `false`. Default value is 10 seconds
+4. `ConsumerRecreationPause` (TimeSpan) - when consumer recieves `IsFatal` `Error` from kafka `RpcClient` tries to recreate consumer. Sometimes something might go wrong during this process, for example in case if Kafka cluster is dead. `RpcClient` will still try to recreate an instance of consumer but with a pause specified using this setting. Default value: 10 seconds
+5. `ProducerRecreationPause` (TimeSpan) - the same as previous but for producer
+6. `StopConsumerOnUnhandledException` (bool) - `RpcClient` maintains a `Task` which calls `Consume()` method on a consumer and also unwinds `Tasks` that wait for responses. Event `OnRpcMessage` is also called from this thread. But something might go wrong during this process and an exception can be thrown. By default when such situation occures an `OnRpcError` event is triggered and next message is consumed. If you want to stop consuming if something goes wrong - set this setting to `true`. IMPORTANT: when `true` is set and `Exception` is thrown, consumer loop is stopped, healthcheck is unhealthy and `RpcClient` becomes unusable. 
+7. `UnhealthyIfNoPartitionsAssigned` (bool) - set this setting to `true` to ask `RpcClient` to set healthcheck to unhealthy if consumer has 0 partitions assigned. It also enables a warmup process on `RpcClient` creation. Note if multiple topics are consumed and some topics have partitions assigned than healthcheck is healthy
+8. `EnableBrokerAvailabilityHealthCheck` (bool) - set this setting to `true` so `RpcClient` will monitor Kafka cluster health and if internal `Confluent.Kafka` client reports that no brokers are available, the healthcheck becomes unhealthy.
