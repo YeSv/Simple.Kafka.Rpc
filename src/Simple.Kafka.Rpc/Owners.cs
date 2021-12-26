@@ -7,6 +7,8 @@ using Simple.Dotnet.Utilities.Arc;
 using System.Threading.Tasks.Dataflow;
 using System.Threading;
 
+using KafkaEnumerable;
+
 using ProducerRent = Simple.Dotnet.Utilities.Arc.Arc<Confluent.Kafka.IProducer<byte[], byte[]>>.ArcRent;
 using ConsumerRent = Simple.Dotnet.Utilities.Arc.Arc<Confluent.Kafka.IConsumer<byte[], byte[]>>.ArcRent;
 
@@ -278,13 +280,18 @@ namespace Simple.Kafka.Rpc
             _builder.RpcHandler.OnRpcLog?.Invoke(ConsumerThreadStarted);
             try
             {
-                while (!token.IsCancellationRequested)
+                var stream = KafkaEnumerables.Single(consumer.Value!, returnNulls: false, cancellationToken: token);
+                foreach (var message in stream)
                 {
                     try
                     {
-                        var result = consumer.Value!.Consume(token);
+                        if (message.IsError)
+                        {
+                            _builder.KafkaHandler.OnError?.Invoke(consumer.Value!, message.Error!.Error);
+                            continue;
+                        }
 
-                        if (result == null) continue;
+                        var result = message.ConsumeResult!;
                         if (result.IsPartitionEOF)
                         {
                             _builder.RpcHandler.OnEof?.Invoke(result);
@@ -297,10 +304,6 @@ namespace Simple.Kafka.Rpc
                         var parseResult = requestId.ParseRpcRequestId();
                         if (!parseResult.IsOk) _builder.RpcHandler.OnRpcLog?.Invoke(new(nameof(RpcClient), SyslogLevel.Info, string.Empty, $"Failed to parse {RpcHeaders.RpcRequestID} header. TPO: {result.TopicPartitionOffset}. Exception: {parseResult.Error!}"));
                         else _builder.RpcHandler.OnRpcMessage?.Invoke(parseResult.Ok, result);
-                    }
-                    catch (ConsumeException ex)
-                    {
-                        _builder.KafkaHandler.OnError?.Invoke(consumer.Value!, ex.Error);
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
